@@ -386,6 +386,11 @@ a { color: inherit; }
 
 .school-profile-heading { display: flex; align-items: center; gap: 15px; }
 .school-profile-logo { width: 74px; height: 74px; padding: 3px; object-fit: cover; background: #fff; border: 1px solid var(--line); border-radius: 50%; box-shadow: var(--shadow-sm); }
+.school-brand-editor { display: flex; align-items: center; gap: 18px; padding: 16px; background: var(--surface-alt); border: 1px dashed var(--line-strong); border-radius: 14px; }
+.school-logo-preview { flex: 0 0 auto; width: 108px; height: 108px; padding: 4px; object-fit: cover; background: #fff; border: 2px solid var(--green-100); border-radius: 50%; box-shadow: var(--shadow-sm); }
+.school-brand-actions { display: grid; gap: 8px; min-width: 0; }
+.school-brand-actions > strong { font-size: var(--text-md); }
+.school-brand-actions > small { color: var(--muted); line-height: 1.7; }
 .certificate-sheet { position: relative; overflow: hidden; padding: 30px; background: #fff; border: 3px double var(--green-700); border-radius: 16px; }
 .certificate-sheet::before, .certificate-sheet::after { content: ""; position: absolute; width: 150px; height: 150px; border: 22px solid rgba(7,148,85,.07); border-radius: 50%; pointer-events: none; }
 .certificate-sheet::before { top: -92px; inset-inline-start: -82px; }
@@ -394,8 +399,11 @@ a { color: inherit; }
 .certificate-logo { width: 112px; height: 112px; padding: 4px; object-fit: cover; background: #fff; border: 2px solid var(--green-100); border-radius: 50%; }
 .certificate-school-name { margin: 0; color: var(--green-700); font-size: 30px; line-height: 1.45; }
 .certificate-subtitle { margin: 0; color: var(--muted); font-size: var(--text-md); }
+.certificate-contact { max-width: 620px; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
 .certificate-title { margin: 20px 0 5px; color: var(--navy); font-size: 27px; text-align: center; }
 .certificate-student { margin: 0 0 22px; color: var(--ink-soft); text-align: center; }
+.certificate-footer-note { display: grid; gap: 6px; margin-top: 24px; color: var(--ink-soft); text-align: center; }
+.certificate-footer-note p { margin: 0; }
 
 @media (max-width: 1150px) {
   .grid--4 { grid-template-columns: repeat(2, 1fr); }
@@ -457,6 +465,8 @@ a { color: inherit; }
   .certificate-sheet { padding: 20px 14px; }
   .certificate-logo { width: 90px; height: 90px; }
   .certificate-school-name { font-size: 24px; }
+  .school-brand-editor { align-items: flex-start; flex-direction: column; }
+  .school-logo-preview { width: 92px; height: 92px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

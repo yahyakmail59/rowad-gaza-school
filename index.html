@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#155EEF">
-  <meta name="description" content="نظام مدرسة رواد غزة الثانوية لإدارة الطلاب والحضور والدرجات والرسوم">
+  <meta id="app-description" name="description" content="نظام مدرسة رواد غزة الثانوية لإدارة الطلاب والحضور والدرجات والرسوم">
   <title>مدرسة رواد غزة الثانوية | نظام الإدارة الذكي</title>
-  <link rel="icon" type="image/jpeg" href="assets/images/ruwad-gaza-school-logo.jpg">
+  <link id="app-favicon" rel="icon" type="image/jpeg" href="assets/images/ruwad-gaza-school-logo.jpg">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
   <section class="auth-screen" id="auth-screen" aria-labelledby="login-title">
     <div class="auth-visual" aria-hidden="true">
       <div class="auth-visual__content">
-        <span class="brand-kicker">مدرسة رواد غزة الثانوية</span>
+        <span class="brand-kicker" data-school-name>مدرسة رواد غزة الثانوية</span>
         <h1>كل يوم دراسي.<br><span>أوضح.</span></h1>
         <p>إدارة الطلاب والحضور والنتائج والمدفوعات من مساحة واحدة تعمل محليًا وتحافظ على خصوصية بيانات المدرسة.</p>
         <div class="auth-highlights">
@@ -31,8 +31,8 @@
     <div class="auth-panel">
       <div class="auth-card">
         <div class="brand brand--dark">
-          <img class="brand__logo" src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
-          <span><strong>مدرسة رواد غزة الثانوية</strong><small>نظام الإدارة الذكي</small></span>
+          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <span><strong data-school-name>مدرسة رواد غزة الثانوية</strong><small>نظام الإدارة الذكي</small></span>
         </div>
         <div class="auth-heading">
           <p class="eyebrow">مرحبًا بعودتك</p>
@@ -74,7 +74,7 @@
           </div>
         </div>
       </div>
-      <p class="auth-footer">تُحفظ بياناتك على هذا الجهاز فقط · الإصدار <span id="app-version">1.4.0</span></p>
+      <p class="auth-footer">تُحفظ بياناتك على هذا الجهاز فقط · الإصدار <span id="app-version">1.5.0</span></p>
     </div>
   </section>
 
@@ -83,8 +83,8 @@
     <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
       <div class="sidebar__top">
         <div class="brand">
-          <img class="brand__logo" src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
-          <span><strong>مدرسة رواد غزة الثانوية</strong><small>الإدارة الذكية</small></span>
+          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <span><strong data-school-short-name>رواد غزة الثانوية</strong><small>الإدارة الذكية</small></span>
         </div>
         <button class="icon-button sidebar-close" id="sidebar-close" type="button" aria-label="إغلاق القائمة">×</button>
       </div>

@@ -1,10 +1,25 @@
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const DB_NAME = 'AlSalamSchoolDB';
 const DB_VERSION = 1;
 const DEMO_PASSWORD = 'Salam@123';
 const SCHOOL_NAME = 'مدرسة رواد غزة الثانوية';
 const SCHOOL_SHORT_NAME = 'رواد غزة الثانوية';
 const SCHOOL_LOGO = 'assets/images/ruwad-gaza-school-logo.jpg';
+const DEFAULT_SCHOOL_PROFILE = Object.freeze({
+  name: SCHOOL_NAME,
+  shortName: SCHOOL_SHORT_NAME,
+  logoPath: SCHOOL_LOGO,
+  logoDataUrl: '',
+  phone: '02-0000000',
+  email: '',
+  website: '',
+  address: 'غزة، فلسطين',
+  principalName: '',
+  certificatePrefix: 'RGS',
+  certificateFooter: '',
+  currency: 'ILS',
+  timezone: 'Asia/Hebron',
+});
 const BACKUP_FORMAT = 'ruwad-gaza-secondary-school-backup';
 const LEGACY_BACKUP_FORMAT = 'al-salam-school-backup';
 
@@ -72,6 +87,7 @@ ROUTE_META.notifications = { route: 'notifications', label: 'الإشعارات'
 const state = {
   db: null,
   user: null,
+  schoolProfile: { ...DEFAULT_SCHOOL_PROFILE },
   route: 'dashboard',
   modalReturnFocus: null,
   filters: {},
@@ -80,6 +96,69 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const nowIso = () => new Date().toISOString();
+
+function normalizeSchoolProfile(value = {}) {
+  return {
+    ...DEFAULT_SCHOOL_PROFILE,
+    ...value,
+    name: String(value.name || SCHOOL_NAME).trim(),
+    shortName: String(value.shortName || value.name || SCHOOL_SHORT_NAME).trim(),
+    logoDataUrl: String(value.logoDataUrl || ''),
+    certificatePrefix: String(value.certificatePrefix || DEFAULT_SCHOOL_PROFILE.certificatePrefix).trim().toUpperCase(),
+  };
+}
+
+function getSchoolLogo(profile = state.schoolProfile) {
+  return profile?.logoDataUrl || profile?.logoPath || SCHOOL_LOGO;
+}
+
+function applySchoolBrand(profile = state.schoolProfile) {
+  const school = normalizeSchoolProfile(profile);
+  const logo = getSchoolLogo(school);
+  state.schoolProfile = school;
+  $$('[data-school-name]').forEach(element => { element.textContent = school.name; });
+  $$('[data-school-short-name]').forEach(element => { element.textContent = school.shortName; });
+  $$('[data-school-logo]').forEach(image => {
+    image.src = logo;
+    image.alt = `شعار ${school.name}`;
+  });
+  document.title = `${school.name} | نظام الإدارة الذكي`;
+  $('#app-description')?.setAttribute('content', `نظام ${school.name} لإدارة الطلاب والحضور والدرجات والرسوم`);
+  $('#app-favicon')?.setAttribute('href', logo);
+  $('#app-favicon')?.setAttribute('type', logo.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
+}
+
+async function loadSchoolProfile() {
+  const setting = await getSetting('schoolProfile');
+  applySchoolBrand(setting?.value || DEFAULT_SCHOOL_PROFILE);
+  return state.schoolProfile;
+}
+
+function prepareSchoolLogo(file) {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file?.type)) return Promise.reject(new Error('اختر صورة بصيغة JPG أو PNG أو WebP.'));
+  if (file.size > 3 * 1024 * 1024) return Promise.reject(new Error('حجم الشعار يجب ألا يتجاوز 3 ميجابايت.'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('تعذر قراءة ملف الشعار.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('ملف الشعار غير صالح.'));
+      image.onload = () => {
+        const maxDimension = 600;
+        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        const outputType = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+        resolve(canvas.toDataURL(outputType, .9));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 const uid = (prefix = 'id') => `${prefix}-${crypto.randomUUID()}`;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const escapeHtml = value => String(value ?? '')
@@ -361,7 +440,7 @@ async function ensureSeedData() {
     assessments, gradeEntries, feePlans, invoices, payments, users, notifications,
     settings: [
       { id: 'setting-seed', key: 'seedVersion', value: 1, updatedAt: nowIso(), updatedBy: 'system' },
-      { id: 'setting-school', key: 'schoolProfile', value: { name: SCHOOL_NAME, shortName: SCHOOL_SHORT_NAME, logoPath: SCHOOL_LOGO, phone: '02-0000000', address: 'غزة، فلسطين', currency: 'ILS', timezone: 'Asia/Hebron' }, updatedAt: nowIso(), updatedBy: 'system' },
+      { id: 'setting-school', key: 'schoolProfile', value: { ...DEFAULT_SCHOOL_PROFILE }, updatedAt: nowIso(), updatedBy: 'system' },
       { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: 'system' },
       { id: 'setting-policy', key: 'schoolPolicy', value: { attendanceMode: 'daily', lateWeight: .5, passScore: 50, sessionTimeoutMinutes: 45, workDays: [0,1,2,3,4] }, updatedAt: nowIso(), updatedBy: 'system' },
     ],
@@ -559,7 +638,7 @@ async function navigate(route, { updateHash = true } = {}) {
   if (updateHash && location.hash !== `#/${route}`) history.pushState(null, '', `#/${route}`);
   const meta = ROUTE_META[route] || ROUTE_META.dashboard;
   $('#page-title').textContent = meta.label;
-  $('#breadcrumb').textContent = `${SCHOOL_NAME} / ${meta.label}`;
+  $('#breadcrumb').textContent = `${state.schoolProfile.name} / ${meta.label}`;
   await buildNavigation();
   closeSidebar();
   $('#page-loading').hidden = false;
@@ -688,6 +767,7 @@ async function bootstrap() {
     await openDatabase();
     await ensureSeedData();
     await ensureBrandIdentity();
+    await loadSchoolProfile();
     await setupGlobalEvents();
     const user = await restoreSession();
     if (user) await showApp(); else showAuth();
@@ -1273,12 +1353,13 @@ async function renderCertificates(){const [certificates,students]=await Promise.
   <section class="grid grid--3">${visible.map(c=>`<article class="card"><header class="card__header"><div><h3>${escapeHtml(studentMap.get(c.studentId)?.fullName||'')}</h3><p>${escapeHtml(c.certificateNo)}</p></div>${statusBadge(c.status)}</header><p><strong>الفصل:</strong> ${escapeHtml(c.snapshot?.termName||'الفصل الأول')}</p><p><strong>المعدل:</strong> ${c.snapshot?.average??0}%</p><p><strong>النتيجة:</strong> ${c.snapshot?.result||'—'}</p><div class="page-actions"><button class="button button--secondary" data-view-certificate="${c.id}">عرض وطباعة</button></div></article>`).join('')||renderEmpty('لا توجد شهادات','لم تصدر شهادة ضمن نطاق حسابك بعد.')}</section></div>`;
   $('#issue-certificate')?.addEventListener('click',()=>openCertificateIssuer(students));$$('[data-view-certificate]').forEach(b=>b.addEventListener('click',()=>openCertificate(visible.find(c=>c.id===b.dataset.viewCertificate),studentMap.get(visible.find(c=>c.id===b.dataset.viewCertificate)?.studentId))));}
 
-function openCertificateIssuer(students){openModal({title:'إصدار شهادة',kicker:'الشهادات',body:`<form id="certificate-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${students.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><p class="form-message field--full" id="certificate-message"></p></form>`,footer:'<button class="button button--primary" id="save-certificate">إصدار الشهادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-certificate').addEventListener('click',async()=>{const form=$('#certificate-form');if(!form.reportValidity())return;const studentId=new FormData(form).get('studentId');const assessments=(await dbGetAll('assessments')).filter(a=>a.status==='published'),entries=(await dbIndexAll('gradeEntries','studentId',studentId)).filter(e=>e.entryStatus==='graded'),subjects=await dbGetAll('subjects');const subjectMap=new Map(subjects.map(s=>[s.id,s]));const rows=[];for(const a of assessments){const e=entries.find(x=>x.assessmentId===a.id),subject=subjectMap.get(a.subjectId);if(e)rows.push({subjectId:a.subjectId,subjectName:subject?.name||'',assessment:a.name,score:e.score,maxScore:a.maxScore,percentage:Math.round(e.score/a.maxScore*100),passScore:subject?.passScore??50});}if(!rows.length){$('#certificate-message').textContent='لا توجد نتائج منشورة لهذا الطالب.';return;}const existing=(await dbIndexAll('certificates','studentId',studentId)).find(item=>item.status==='active');if(existing){$('#certificate-message').textContent=`توجد شهادة نشطة بالفعل برقم ${existing.certificateNo}. يجب إضافة دورة الإلغاء والاستبدال قبل إصدار نسخة جديدة.`;return;}const average=Math.round(rows.reduce((s,r)=>s+r.percentage,0)/rows.length),passed=rows.every(row=>row.percentage>=row.passScore);const count=await dbCount('certificates');const activeYear=(await dbGetAll('academicYears')).find(year=>year.isActive);const certificate=baseRecord(uid('certificate'),{certificateNo:`RGS-2026-${String(count+1).padStart(4,'0')}`,studentId,academicYearId:activeYear?.id||'year-2026',termId:'term-1',snapshot:{termName:activeYear?.terms?.find(term=>term.id==='term-1')?.name||'الفصل الأول',rows,average,result:passed?'ناجح':'يحتاج متابعة'},issuedAt:nowIso(),issuedBy:state.user.id,status:'active',supersedesId:null,voidReason:null,createdBy:state.user.id,updatedBy:state.user.id});await dbPut('certificates',certificate);await audit('CERTIFICATE_ISSUED','certificate',certificate.id,null,{certificateNo:certificate.certificateNo,studentId});closeModal();showToast('تم إصدار الشهادة',certificate.certificateNo,'success');renderCertificates();});}});}
+function openCertificateIssuer(students){openModal({title:'إصدار شهادة',kicker:'الشهادات',body:`<form id="certificate-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${students.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><p class="form-message field--full" id="certificate-message"></p></form>`,footer:'<button class="button button--primary" id="save-certificate">إصدار الشهادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-certificate').addEventListener('click',async()=>{const form=$('#certificate-form');if(!form.reportValidity())return;const studentId=new FormData(form).get('studentId');const assessments=(await dbGetAll('assessments')).filter(a=>a.status==='published'),entries=(await dbIndexAll('gradeEntries','studentId',studentId)).filter(e=>e.entryStatus==='graded'),subjects=await dbGetAll('subjects');const subjectMap=new Map(subjects.map(s=>[s.id,s]));const rows=[];for(const a of assessments){const e=entries.find(x=>x.assessmentId===a.id),subject=subjectMap.get(a.subjectId);if(e)rows.push({subjectId:a.subjectId,subjectName:subject?.name||'',assessment:a.name,score:e.score,maxScore:a.maxScore,percentage:Math.round(e.score/a.maxScore*100),passScore:subject?.passScore??50});}if(!rows.length){$('#certificate-message').textContent='لا توجد نتائج منشورة لهذا الطالب.';return;}const existing=(await dbIndexAll('certificates','studentId',studentId)).find(item=>item.status==='active');if(existing){$('#certificate-message').textContent=`توجد شهادة نشطة بالفعل برقم ${existing.certificateNo}. يجب إضافة دورة الإلغاء والاستبدال قبل إصدار نسخة جديدة.`;return;}const average=Math.round(rows.reduce((s,r)=>s+r.percentage,0)/rows.length),passed=rows.every(row=>row.percentage>=row.passScore);const count=await dbCount('certificates');const activeYear=(await dbGetAll('academicYears')).find(year=>year.isActive);const yearCode=String(activeYear?.name||new Date().getFullYear()).match(/\d{4}/)?.[0]||String(new Date().getFullYear());const certificatePrefix=String(state.schoolProfile.certificatePrefix||'RGS').toUpperCase();const certificate=baseRecord(uid('certificate'),{certificateNo:`${certificatePrefix}-${yearCode}-${String(count+1).padStart(4,'0')}`,studentId,academicYearId:activeYear?.id||'year-2026',termId:'term-1',snapshot:{termName:activeYear?.terms?.find(term=>term.id==='term-1')?.name||'الفصل الأول',rows,average,result:passed?'ناجح':'يحتاج متابعة'},issuedAt:nowIso(),issuedBy:state.user.id,status:'active',supersedesId:null,voidReason:null,createdBy:state.user.id,updatedBy:state.user.id});await dbPut('certificates',certificate);await audit('CERTIFICATE_ISSUED','certificate',certificate.id,null,{certificateNo:certificate.certificateNo,studentId});closeModal();showToast('تم إصدار الشهادة',certificate.certificateNo,'success');renderCertificates();});}});}
 
 async function openCertificate(certificate, student) {
-  const school = (await getSetting('schoolProfile'))?.value || { name: SCHOOL_NAME, logoPath: SCHOOL_LOGO };
-  const schoolName = school.name || SCHOOL_NAME;
-  const logoPath = school.logoPath || SCHOOL_LOGO;
+  const school = normalizeSchoolProfile((await getSetting('schoolProfile'))?.value);
+  const schoolName = school.name;
+  const logoPath = getSchoolLogo(school);
+  const contactDetails = [school.address, school.phone, school.email, school.website].filter(Boolean);
   openModal({
     title: 'كشف الدرجات',
     kicker: certificate.certificateNo,
@@ -1288,11 +1369,13 @@ async function openCertificate(certificate, student) {
         <img class="certificate-logo" src="${escapeHtml(logoPath)}" alt="شعار ${escapeHtml(schoolName)}">
         <h2 class="certificate-school-name">${escapeHtml(schoolName)}</h2>
         <p class="certificate-subtitle">كشف الدرجات الرسمي</p>
+        ${contactDetails.length?`<p class="certificate-contact">${contactDetails.map(escapeHtml).join(' · ')}</p>`:''}
       </header>
       <h3 class="certificate-title">${escapeHtml(certificate.snapshot.termName)}</h3>
       <p class="certificate-student">${escapeHtml(student?.fullName || '')} · ${escapeHtml(student?.admissionNo || '')}</p>
       <table class="data-table"><thead><tr><th>المادة</th><th>التقييم</th><th>الدرجة</th><th>النسبة</th></tr></thead><tbody>${certificate.snapshot.rows.map(row => `<tr><td>${escapeHtml(row.subjectName)}</td><td>${escapeHtml(row.assessment)}</td><td>${row.score} / ${row.maxScore}</td><td>${row.percentage}%</td></tr>`).join('')}</tbody></table>
       <div class="metric-strip" style="margin-top:20px;justify-content:center"><div class="metric-chip"><small>المعدل</small><strong>${certificate.snapshot.average}%</strong></div><div class="metric-chip"><small>النتيجة</small><strong>${escapeHtml(certificate.snapshot.result)}</strong></div><div class="metric-chip"><small>تاريخ الإصدار</small><strong>${formatDate(certificate.issuedAt)}</strong></div></div>
+      ${(school.principalName||school.certificateFooter)?`<footer class="certificate-footer-note">${school.certificateFooter?`<p>${escapeHtml(school.certificateFooter)}</p>`:''}${school.principalName?`<strong>مدير/ة المدرسة: ${escapeHtml(school.principalName)}</strong>`:''}</footer>`:''}
     </section>`,
     footer: '<button class="button button--primary" id="print-certificate">طباعة الشهادة</button><button class="button button--secondary" data-modal-close>إغلاق</button>',
     onOpen: () => {
@@ -1384,18 +1467,31 @@ async function canonicalChecksum(payload){const digest=await crypto.subtle.diges
 
 async function createBackupPayload(){const stores={};for(const name of Object.keys(SCHEMA))stores[name]=await dbGetAll(name);const payload={format:BACKUP_FORMAT,formatVersion:1,schemaVersion:DB_VERSION,exportedAt:nowIso(),schoolId:'ruwad-gaza-secondary-school',stores,counts:Object.fromEntries(Object.entries(stores).map(([name,rows])=>[name,rows.length]))};payload.checksum=await canonicalChecksum(payload);return payload;}
 
-async function downloadBackup(){const payload=await createBackupPayload(),blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`ruwad-gaza-school-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);await audit('BACKUP_EXPORTED','system','database',null,{counts:payload.counts});showToast('تم إنشاء النسخة','احفظ الملف في مكان آمن؛ فهو يحتوي بيانات حساسة.','success');}
+async function downloadBackup(){const payload=await createBackupPayload(),blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a'),safeName=(state.schoolProfile.shortName||'school').replace(/[\\/:*?"<>|]+/g,'-').trim();a.href=url;a.download=`${safeName||'school'}-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);await audit('BACKUP_EXPORTED','system','database',null,{counts:payload.counts});showToast('تم إنشاء النسخة','احفظ الملف في مكان آمن؛ فهو يحتوي بيانات حساسة.','success');}
 
-async function validateBackup(payload){if(!payload||![BACKUP_FORMAT,LEGACY_BACKUP_FORMAT].includes(payload.format))throw new Error(`هذا الملف ليس نسخة معتمدة لنظام ${SCHOOL_NAME}.`);if(payload.schemaVersion>DB_VERSION)throw new Error('النسخة أُنشئت بإصدار أحدث من التطبيق.');const suppliedChecksum=payload.checksum;if(!suppliedChecksum)throw new Error('النسخة لا تحتوي بصمة تحقق.');const checkPayload={...payload};delete checkPayload.checksum;const calculated=await canonicalChecksum(checkPayload);if(calculated!==suppliedChecksum)throw new Error('بصمة النسخة غير مطابقة؛ ربما تعرض الملف للتلف أو التعديل.');for(const name of Object.keys(SCHEMA)){if(!Array.isArray(payload.stores?.[name]))throw new Error(`المخزن ${name} مفقود من النسخة.`);if(payload.counts?.[name]!==payload.stores[name].length)throw new Error(`عدد سجلات ${name} لا يطابق بيانات النسخة.`);}const studentIds=new Set(payload.stores.students.map(x=>x.id));if(payload.stores.enrollments.some(e=>!studentIds.has(e.studentId)))throw new Error('النسخة تحتوي تسجيل طالب غير موجود.');return true;}
+async function validateBackup(payload){if(!payload||![BACKUP_FORMAT,LEGACY_BACKUP_FORMAT].includes(payload.format))throw new Error(`هذا الملف ليس نسخة معتمدة لنظام ${state.schoolProfile.name}.`);if(payload.schemaVersion>DB_VERSION)throw new Error('النسخة أُنشئت بإصدار أحدث من التطبيق.');const suppliedChecksum=payload.checksum;if(!suppliedChecksum)throw new Error('النسخة لا تحتوي بصمة تحقق.');const checkPayload={...payload};delete checkPayload.checksum;const calculated=await canonicalChecksum(checkPayload);if(calculated!==suppliedChecksum)throw new Error('بصمة النسخة غير مطابقة؛ ربما تعرض الملف للتلف أو التعديل.');for(const name of Object.keys(SCHEMA)){if(!Array.isArray(payload.stores?.[name]))throw new Error(`المخزن ${name} مفقود من النسخة.`);if(payload.counts?.[name]!==payload.stores[name].length)throw new Error(`عدد سجلات ${name} لا يطابق بيانات النسخة.`);}const studentIds=new Set(payload.stores.students.map(x=>x.id));if(payload.stores.enrollments.some(e=>!studentIds.has(e.studentId)))throw new Error('النسخة تحتوي تسجيل طالب غير موجود.');return true;}
 
 async function restoreBackup(payload){await validateBackup(payload);const names=Object.keys(SCHEMA);const tx=state.db.transaction(names,'readwrite');for(const name of names){const store=tx.objectStore(name);store.clear();for(const row of payload.stores[name])store.put(row);}await transactionDone(tx);sessionStorage.clear();}
 
-async function renderSettings(){const school=(await getSetting('schoolProfile'))?.value||{},policy=(await getSetting('schoolPolicy'))?.value||{},counts=Object.fromEntries(await Promise.all(Object.keys(SCHEMA).map(async name=>[name,await dbCount(name)])));const total=Object.values(counts).reduce((s,n)=>s+n,0);$('#view-root').innerHTML=`<div class="page">${renderPageHeader('الإعدادات والنسخ الاحتياطي','بيانات المدرسة والسياسات وحماية استمرارية البيانات.')}
-  <section class="grid grid--2"><article class="card"><header class="card__header"><div class="school-profile-heading"><img class="school-profile-logo" src="${escapeHtml(school.logoPath||SCHOOL_LOGO)}" alt="شعار ${escapeHtml(school.name||SCHOOL_NAME)}"><div><h3>بيانات المدرسة</h3><p>تظهر في الشهادات والتقارير</p></div></div></header><form id="school-settings" class="form-grid"><div class="field field--full"><label>اسم المدرسة</label><input name="name" value="${escapeHtml(school.name||SCHOOL_NAME)}"></div><div class="field"><label>الهاتف</label><input name="phone" value="${escapeHtml(school.phone||'')}"></div><div class="field"><label>العملة</label><select name="currency"><option value="ILS" selected>شيكل إسرائيلي (ILS)</option></select></div><div class="field field--full"><label>العنوان</label><input name="address" value="${escapeHtml(school.address||'')}"></div><div class="field field--full"><button class="button button--primary" type="submit">حفظ بيانات المدرسة</button></div></form></article>
+async function renderSettings(){const school=normalizeSchoolProfile((await getSetting('schoolProfile'))?.value),policy=(await getSetting('schoolPolicy'))?.value||{},counts=Object.fromEntries(await Promise.all(Object.keys(SCHEMA).map(async name=>[name,await dbCount(name)])));const total=Object.values(counts).reduce((s,n)=>s+n,0);let pendingLogoDataUrl=school.logoDataUrl,pendingLogoPath=school.logoPath||SCHOOL_LOGO;$('#view-root').innerHTML=`<div class="page">${renderPageHeader('الإعدادات والنسخ الاحتياطي','خصص هوية المدرسة والسياسات واحمِ استمرارية البيانات.')}
+  <section class="grid grid--2"><article class="card"><header class="card__header"><div><h3>هوية المدرسة</h3><p>تُحدّث صفحة الدخول والقائمة والشهادات فور الحفظ</p></div></header><form id="school-settings" class="form-grid">
+    <div class="field field--full"><div class="school-brand-editor"><img id="school-logo-preview" class="school-logo-preview" src="${escapeHtml(getSchoolLogo(school))}" alt="معاينة شعار ${escapeHtml(school.name)}"><div class="school-brand-actions"><strong>شعار المدرسة</strong><small>JPG أو PNG أو WebP، بحد أقصى 3 ميجابايت. يُحفظ محليًا داخل المتصفح.</small><div class="page-actions"><label class="button button--secondary" for="school-logo-input" style="cursor:pointer">اختيار شعار<input id="school-logo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button--ghost" id="reset-school-logo" type="button">استخدام الشعار الافتراضي</button></div></div></div></div>
+    <div class="field field--full"><label for="school-name">الاسم الرسمي للمدرسة *</label><input id="school-name" name="name" required maxlength="120" value="${escapeHtml(school.name)}"></div>
+    <div class="field"><label for="school-short-name">الاسم المختصر *</label><input id="school-short-name" name="shortName" required maxlength="60" value="${escapeHtml(school.shortName)}"><small>يظهر في القائمة الجانبية عند ضيق المساحة.</small></div>
+    <div class="field"><label for="school-principal">اسم المدير/ة</label><input id="school-principal" name="principalName" maxlength="100" value="${escapeHtml(school.principalName)}"></div>
+    <div class="field"><label for="certificate-prefix">بادئة أرقام الشهادات *</label><input id="certificate-prefix" name="certificatePrefix" required pattern="[A-Za-z0-9-]{2,12}" maxlength="12" dir="ltr" value="${escapeHtml(school.certificatePrefix)}"><small>أحرف إنجليزية أو أرقام، مثل RGS.</small></div>
+    <div class="field"><label for="school-phone">الهاتف</label><input id="school-phone" name="phone" inputmode="tel" maxlength="30" value="${escapeHtml(school.phone)}"></div>
+    <div class="field"><label for="school-email">البريد الإلكتروني</label><input id="school-email" name="email" type="email" maxlength="120" value="${escapeHtml(school.email)}"></div>
+    <div class="field field--full"><label for="school-website">الموقع الإلكتروني</label><input id="school-website" name="website" inputmode="url" maxlength="200" placeholder="www.example.com" value="${escapeHtml(school.website)}"></div>
+    <div class="field field--full"><label for="school-address">العنوان</label><input id="school-address" name="address" maxlength="180" value="${escapeHtml(school.address)}"></div>
+    <div class="field field--full"><label for="certificate-footer">عبارة أسفل الشهادة</label><textarea id="certificate-footer" name="certificateFooter" rows="2" maxlength="240" placeholder="مثال: مع تمنياتنا لطلبتنا بدوام التقدم والنجاح">${escapeHtml(school.certificateFooter)}</textarea></div>
+    <input name="currency" type="hidden" value="${escapeHtml(school.currency)}"><div class="field field--full"><button class="button button--primary" type="submit">حفظ وتطبيق الهوية</button></div></form></article>
   <article class="card"><header class="card__header"><div><h3>سياسات التشغيل</h3><p>تطبق على السجلات الجديدة</p></div></header><form id="policy-settings" class="form-grid"><div class="field"><label>نمط الحضور</label><select name="attendanceMode"><option value="daily" ${policy.attendanceMode==='daily'?'selected':''}>يومي</option><option value="period" ${policy.attendanceMode==='period'?'selected':''}>لكل حصة</option></select></div><div class="field"><label>وزن التأخير</label><input name="lateWeight" type="number" min="0" max="1" step="0.1" value="${policy.lateWeight??.5}"></div><div class="field"><label>حد النجاح %</label><input name="passScore" type="number" min="0" max="100" value="${policy.passScore??50}"></div><div class="field"><label>قفل الجلسة (دقيقة)</label><input name="sessionTimeoutMinutes" type="number" min="5" max="240" value="${policy.sessionTimeoutMinutes??45}"></div><div class="field field--full"><button class="button button--primary" type="submit">حفظ السياسات</button></div></form></article>
-  <article class="card"><header class="card__header"><div><h3>النسخ الاحتياطي</h3><p>${formatNumber(total)} سجلًا في ${Object.keys(SCHEMA).length} مخزنًا محليًا</p></div></header><div class="alert-card is-warning"><span class="alert-card__icon">!</span><div class="alert-card__copy"><h4>البيانات مرتبطة بهذا المتصفح</h4><p>احفظ نسخة دورية. ملف النسخة حساس ويحتوي بيانات المدرسة.</p></div></div><div class="page-actions" style="margin-top:15px"><button class="button button--primary" id="export-backup">تنزيل نسخة JSON</button><label class="button button--secondary" for="import-backup" style="cursor:pointer">استعادة نسخة<input id="import-backup" type="file" accept="application/json" hidden></label></div></article>
+  <article class="card"><header class="card__header"><div><h3>النسخ الاحتياطي</h3><p>${formatNumber(total)} سجلًا في ${Object.keys(SCHEMA).length} مخزنًا محليًا</p></div></header><div class="alert-card is-warning"><span class="alert-card__icon">!</span><div class="alert-card__copy"><h4>البيانات مرتبطة بهذا المتصفح</h4><p>احفظ نسخة دورية. ملف النسخة حساس ويحتوي بيانات المدرسة وهويتها.</p></div></div><div class="page-actions" style="margin-top:15px"><button class="button button--primary" id="export-backup">تنزيل نسخة JSON</button><label class="button button--secondary" for="import-backup" style="cursor:pointer">استعادة نسخة<input id="import-backup" type="file" accept="application/json" hidden></label></div></article>
   <article class="card"><header class="card__header"><div><h3>صيانة بيانات العرض</h3><p>إعادة القاعدة إلى بياناتها التجريبية الأولى</p></div></header><div class="confirm-box">هذا الإجراء يحذف كل التعديلات المحلية ويعيد بيانات العرض. خذ نسخة قبل المتابعة.</div><button class="button button--danger" id="reset-demo" style="margin-top:15px">إعادة ضبط بيانات العرض</button></article></section></div>`;
-  $('#school-settings').addEventListener('submit',async e=>{e.preventDefault();const value={...school,...Object.fromEntries(new FormData(e.currentTarget)),timezone:'Asia/Hebron'};const setting=(await getSetting('schoolProfile'))||{id:'setting-school',key:'schoolProfile'};await dbPut('settings',{...setting,value,updatedAt:nowIso(),updatedBy:state.user.id});await audit('SETTINGS_UPDATED','settings','schoolProfile',school,value);showToast('تم الحفظ','تم تحديث بيانات المدرسة.','success');});
+  $('#school-logo-input').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{pendingLogoDataUrl=await prepareSchoolLogo(file);$('#school-logo-preview').src=pendingLogoDataUrl;}catch(error){showToast('تعذر اعتماد الشعار',error.message,'error',6000);e.target.value='';}});
+  $('#reset-school-logo').addEventListener('click',()=>{pendingLogoDataUrl='';pendingLogoPath=SCHOOL_LOGO;$('#school-logo-input').value='';$('#school-logo-preview').src=SCHOOL_LOGO;});
+  $('#school-settings').addEventListener('submit',async e=>{e.preventDefault();if(!e.currentTarget.reportValidity())return;const raw=Object.fromEntries(new FormData(e.currentTarget));const value=normalizeSchoolProfile({...school,...raw,logoPath:pendingLogoPath,logoDataUrl:pendingLogoDataUrl,timezone:school.timezone||'Asia/Hebron'});const setting=(await getSetting('schoolProfile'))||{id:'setting-school',key:'schoolProfile'};await dbPut('settings',{...setting,value,updatedAt:nowIso(),updatedBy:state.user.id});const admin=await dbGet('users','user-admin');if(admin&&admin.displayName===`مدير ${school.name}`){admin.displayName=`مدير ${value.name}`;admin.updatedAt=nowIso();admin.updatedBy=state.user.id;await dbPut('users',admin);if(state.user.id===admin.id){state.user=admin;updateUserChrome();}}await audit('SCHOOL_PROFILE_UPDATED','settings','schoolProfile',{name:school.name,shortName:school.shortName,hasCustomLogo:Boolean(school.logoDataUrl)},{name:value.name,shortName:value.shortName,hasCustomLogo:Boolean(value.logoDataUrl)});applySchoolBrand(value);$('#breadcrumb').textContent=`${value.name} / الإعدادات والنسخ`;showToast('تم تطبيق هوية المدرسة','تحدث الاسم والشعار وبيانات الشهادات بنجاح.','success');});
   $('#policy-settings').addEventListener('submit',async e=>{e.preventDefault();const raw=Object.fromEntries(new FormData(e.currentTarget)),value={...policy,attendanceMode:raw.attendanceMode,lateWeight:Number(raw.lateWeight),passScore:Number(raw.passScore),sessionTimeoutMinutes:Number(raw.sessionTimeoutMinutes)};const setting=(await getSetting('schoolPolicy'))||{id:'setting-policy',key:'schoolPolicy'};await dbPut('settings',{...setting,value,updatedAt:nowIso(),updatedBy:state.user.id});await audit('POLICY_UPDATED','settings','schoolPolicy',policy,value);showToast('تم الحفظ','ستطبق السياسة على العمليات الجديدة.','success');});
   $('#export-backup').addEventListener('click',downloadBackup);
   $('#import-backup').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());await validateBackup(payload);openModal({title:'تأكيد استعادة النسخة',kicker:'إجراء حساس',body:`<div class="confirm-box"><strong>سيتم استبدال البيانات الحالية.</strong><p>تاريخ النسخة: ${formatDate(payload.exportedAt)} · إجمالي السجلات: ${Object.values(payload.counts).reduce((s,n)=>s+n,0)}</p><p>سيتم تنزيل نسخة تلقائية من الحالة الحالية أولًا.</p></div>`,footer:'<button class="button button--danger" id="confirm-restore">تنزيل الحالية ثم الاستعادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#confirm-restore').addEventListener('click',async()=>{await downloadBackup();await restoreBackup(payload);location.reload();});}});}catch(error){showToast('نسخة غير صالحة',error.message,'error',6000);}finally{e.target.value='';}});
