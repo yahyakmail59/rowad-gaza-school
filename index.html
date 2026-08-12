@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#155EEF">
+  <meta name="description" content="نظام مدرسة رواد غزة الثانوية لإدارة الطلاب والحضور والدرجات والرسوم">
+  <title>مدرسة رواد غزة الثانوية | نظام الإدارة الذكي</title>
+  <link rel="icon" type="image/jpeg" href="assets/images/ruwad-gaza-school-logo.jpg">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">انتقل إلى المحتوى</a>
+
+  <section class="auth-screen" id="auth-screen" aria-labelledby="login-title">
+    <div class="auth-visual" aria-hidden="true">
+      <div class="auth-visual__content">
+        <span class="brand-kicker">مدرسة رواد غزة الثانوية</span>
+        <h1>كل يوم دراسي.<br><span>أوضح.</span></h1>
+        <p>إدارة الطلاب والحضور والنتائج والمدفوعات من مساحة واحدة تعمل محليًا وتحافظ على خصوصية بيانات المدرسة.</p>
+        <div class="auth-highlights">
+          <div><strong>4</strong><span>بوابات حسب الدور</span></div>
+          <div><strong>100%</strong><span>بيانات محلية</span></div>
+          <div><strong>RTL</strong><span>تجربة عربية</span></div>
+        </div>
+      </div>
+      <div class="visual-orbit orbit-one"></div>
+      <div class="visual-orbit orbit-two"></div>
+    </div>
+
+    <div class="auth-panel">
+      <div class="auth-card">
+        <div class="brand brand--dark">
+          <img class="brand__logo" src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <span><strong>مدرسة رواد غزة الثانوية</strong><small>نظام الإدارة الذكي</small></span>
+        </div>
+        <div class="auth-heading">
+          <p class="eyebrow">مرحبًا بعودتك</p>
+          <h2 id="login-title">تسجيل الدخول</h2>
+          <p>استخدم حسابك للوصول إلى المساحة المناسبة لدورك.</p>
+        </div>
+
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label for="username">اسم المستخدم</label>
+            <div class="input-wrap">
+              <span class="input-icon" aria-hidden="true">@</span>
+              <input id="username" name="username" autocomplete="username" required placeholder="مثال: admin.demo">
+            </div>
+            <small class="field-error" id="username-error"></small>
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="password">كلمة المرور</label><button class="text-button" type="button" id="show-demo">عرض حسابات التجربة</button></div>
+            <div class="input-wrap">
+              <span class="input-icon" aria-hidden="true">●</span>
+              <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="أدخل كلمة المرور">
+              <button class="icon-button input-action" type="button" id="toggle-password" aria-label="إظهار كلمة المرور">◉</button>
+            </div>
+            <small class="field-error" id="password-error"></small>
+          </div>
+          <button class="button button--primary button--large" id="login-submit" type="submit">
+            <span>دخول إلى النظام</span><span aria-hidden="true">←</span>
+          </button>
+          <p class="form-message" id="login-message" role="alert" aria-live="polite"></p>
+        </form>
+
+        <div class="demo-accounts" id="demo-accounts" hidden>
+          <p><strong>حسابات العرض</strong> — كلمة المرور للجميع: <code>Salam@123</code></p>
+          <div class="demo-grid">
+            <button type="button" data-demo-user="admin.demo"><span class="avatar avatar--blue">م</span><span>مدير<small>admin.demo</small></span></button>
+            <button type="button" data-demo-user="teacher.demo"><span class="avatar avatar--green">ع</span><span>مدرس<small>teacher.demo</small></span></button>
+            <button type="button" data-demo-user="student.demo"><span class="avatar avatar--red">ط</span><span>طالب<small>student.demo</small></span></button>
+            <button type="button" data-demo-user="guardian.demo"><span class="avatar avatar--navy">و</span><span>ولي أمر<small>guardian.demo</small></span></button>
+          </div>
+        </div>
+      </div>
+      <p class="auth-footer">تُحفظ بياناتك على هذا الجهاز فقط · الإصدار <span id="app-version">1.4.0</span></p>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
+    <div class="mobile-overlay" id="mobile-overlay"></div>
+    <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
+      <div class="sidebar__top">
+        <div class="brand">
+          <img class="brand__logo" src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <span><strong>مدرسة رواد غزة الثانوية</strong><small>الإدارة الذكية</small></span>
+        </div>
+        <button class="icon-button sidebar-close" id="sidebar-close" type="button" aria-label="إغلاق القائمة">×</button>
+      </div>
+
+      <div class="school-year" aria-label="السنة الدراسية النشطة">
+        <span class="school-year__icon">◷</span>
+        <span><small>السنة الدراسية</small><strong id="active-year-label">2026 / 2027</strong></span>
+        <span aria-hidden="true">⌄</span>
+      </div>
+
+      <nav class="main-nav" id="main-nav"></nav>
+
+      <div class="sidebar__bottom">
+        <div class="local-status"><span></span><div><strong>البيانات محلية</strong><small>آخر حفظ: الآن</small></div></div>
+        <button class="user-mini" id="user-menu-button" type="button">
+          <span class="avatar avatar--blue" id="sidebar-avatar">م</span>
+          <span><strong id="sidebar-user-name">مستخدم</strong><small id="sidebar-user-role">الدور</small></span>
+          <span aria-hidden="true">⋮</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="app-area">
+      <header class="topbar">
+        <div class="topbar__start">
+          <button class="icon-button menu-button" id="menu-button" type="button" aria-label="فتح القائمة">☰</button>
+          <div><p class="breadcrumb" id="breadcrumb">الرئيسية</p><h1 id="page-title">لوحة التحكم</h1></div>
+        </div>
+        <div class="topbar__actions">
+          <label class="quick-search" for="global-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="global-search" type="search" placeholder="بحث سريع..." autocomplete="off">
+            <kbd>Ctrl K</kbd>
+          </label>
+          <button class="icon-button notification-button" id="notification-button" type="button" aria-label="الإشعارات"><span aria-hidden="true">♧</span><i id="notification-dot"></i></button>
+          <button class="top-user" id="top-user-button" type="button">
+            <span class="avatar avatar--blue" id="top-avatar">م</span>
+            <span class="top-user__copy"><strong id="top-user-name">مستخدم</strong><small id="top-user-role">الدور</small></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content" id="main-content" tabindex="-1">
+        <div class="page-loading" id="page-loading" hidden><span class="spinner"></span><p>جارٍ تحميل البيانات…</p></div>
+        <div id="view-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="popover" id="user-popover" hidden>
+    <div class="popover__profile"><span class="avatar avatar--blue" id="popover-avatar">م</span><span><strong id="popover-name">مستخدم</strong><small id="popover-username">@user</small></span></div>
+    <button type="button" data-action="profile">الملف الشخصي</button>
+    <button type="button" data-action="lock">قفل الجلسة</button>
+    <button class="danger-text" type="button" data-action="logout">تسجيل الخروج</button>
+  </div>
+
+  <div class="modal-layer" id="modal-layer" hidden>
+    <div class="modal-backdrop" data-modal-close></div>
+    <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal__header"><div><p class="eyebrow" id="modal-kicker"></p><h2 id="modal-title">عنوان</h2></div><button class="icon-button" type="button" data-modal-close aria-label="إغلاق">×</button></header>
+      <div class="modal__body" id="modal-body"></div>
+      <footer class="modal__footer" id="modal-footer"></footer>
+    </section>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <template id="empty-state-template">
+    <div class="empty-state"><span class="empty-state__icon">◇</span><h3></h3><p></p><div></div></div>
+  </template>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

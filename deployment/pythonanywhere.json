@@ -1,0 +1,20 @@
+{
+  "provider": "pythonanywhere",
+  "deploymentType": "static-site",
+  "username": "RowadGaza",
+  "domain": "RowadGaza.pythonanywhere.com",
+  "projectName": "rowad-gaza-school",
+  "projectDirectory": "/home/RowadGaza/rowad-gaza-school",
+  "entryFile": "index.html",
+  "branch": "main",
+  "staticFilesMapping": {
+    "url": "/",
+    "path": "/home/RowadGaza/rowad-gaza-school"
+  },
+  "updateCommands": [
+    "cd /home/RowadGaza/rowad-gaza-school",
+    "git pull origin main"
+  ],
+  "publicUrl": "https://RowadGaza.pythonanywhere.com"
+}
+
