@@ -1,0 +1,15 @@
+{
+  "name": "مدرسة رواد غزة الثانوية — نظام الإدارة",
+  "short_name": "رواد غزة",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F0F5FF",
+  "theme_color": "#155EEF",
+  "icons": [
+    { "src": "assets/images/ruwad-gaza-school-logo.jpg", "sizes": "192x192", "type": "image/jpeg" },
+    { "src": "assets/images/ruwad-gaza-school-logo.jpg", "sizes": "512x512", "type": "image/jpeg" }
+  ]
+}

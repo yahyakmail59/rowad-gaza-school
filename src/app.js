@@ -1514,3 +1514,8 @@ for(const eventName of ['click','keydown','touchstart'])document.addEventListene
 setInterval(async()=>{if(!state.user)return;const setting=await getSetting('schoolPolicy');const timeout=(setting?.value?.sessionTimeoutMinutes||45)*60*1000;if(Date.now()-lastActivityAt>timeout){showToast('انتهت الجلسة','سجل الدخول مرة أخرى للمتابعة.','error');await signOut('timeout');}},60000);
 
 bootstrap();
+
+// تسجيل Service Worker — بدونه لا يفتح التطبيق بلا إنترنت رغم أن بياناته محلية.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* لا يعمل من file:// */ });
+}
