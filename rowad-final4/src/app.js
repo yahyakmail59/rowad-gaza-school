@@ -790,6 +790,70 @@ const ROUTE_RENDERERS = {};
 /* ==================== التركيب الأول ==================== */
 
 /** يظهر مرة واحدة على جهاز فارغ: اسم المدرسة وحساب المدير. */
+/**
+ * بيانات أساسية تحتاجها أي مدرسة لتبدأ العمل فورًا — لا بيانات تجريبية، بل
+ * الهيكل الذي بدونه يستحيل إدخال أي شيء آخر: سنة دراسية نشطة بفصلين، صفوف
+ * دراسية مطابقة للمراحل المختارة، ومجموعة مواد أساسية معتمدة في المنهاج.
+ *
+ * يُستدعى مرة واحدة فقط، عند التركيب الأول. لا يمسّ شيئًا إن استُدعي على
+ * مدرسة فيها بيانات بالفعل.
+ */
+async function seedFoundation({ createdBy, stages }) {
+  const currentYear = new Date().getFullYear();
+  // العام الدراسي يبدأ صيفًا؛ قبل أغسطس نفترض أننا ما زلنا في عام العام الماضي.
+  const startYear = new Date().getMonth() >= 7 ? currentYear : currentYear - 1;
+  const year = baseRecord(uid('year'), {
+    name: `${startYear} / ${startYear + 1}`,
+    startsOn: `${startYear}-08-20`, endsOn: `${startYear + 1}-06-15`, isActive: true,
+    terms: [
+      { id: uid('term'), name: 'الفصل الأول', startsOn: `${startYear}-08-20`, endsOn: `${startYear + 1}-01-15` },
+      { id: uid('term'), name: 'الفصل الثاني', startsOn: `${startYear + 1}-01-25`, endsOn: `${startYear + 1}-06-15` },
+    ],
+    createdBy, updatedBy: createdBy,
+  });
+  await dbPut('academicYears', year);
+
+  const STAGE_GRADES = {
+    elementary: { label: 'المرحلة الابتدائية', range: [1, 6] },
+    preparatory: { label: 'المرحلة الإعدادية', range: [7, 9] },
+    secondary: { label: 'المرحلة الثانوية', range: [10, 12] },
+  };
+  const ARABIC_ORDINALS = ['', 'الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس',
+    'السابع', 'الثامن', 'التاسع', 'العاشر', 'الحادي عشر', 'الثاني عشر'];
+  let order = 1;
+  for (const stage of stages) {
+    const info = STAGE_GRADES[stage];
+    if (!info) continue;
+    for (let n = info.range[0]; n <= info.range[1]; n += 1) {
+      await dbPut('gradeLevels', baseRecord(uid('grade'), {
+        code: `G${String(n).padStart(2, '0')}`, name: `الصف ${ARABIC_ORDINALS[n]}`,
+        stage: info.label, order: order++, createdBy, updatedBy: createdBy,
+      }));
+    }
+  }
+
+  // مواد أساسية مشتركة في المنهاج الفلسطيني لكل المراحل. المدرسة تحذف أو
+  // تضيف من "الفصول والمواد" حسب احتياجها الفعلي.
+  const BASE_SUBJECTS = [
+    { code: 'ARB', name: 'اللغة العربية', color: '#155EEF' },
+    { code: 'ENG', name: 'اللغة الإنجليزية', color: '#0EA5E9' },
+    { code: 'MATH', name: 'الرياضيات', color: '#7C3AED' },
+    { code: 'SCI', name: 'العلوم', color: '#059669' },
+    { code: 'ISL', name: 'التربية الإسلامية', color: '#B45309' },
+    { code: 'SOC', name: 'التربية الاجتماعية والوطنية', color: '#DC6803' },
+    { code: 'PE', name: 'التربية الرياضية', color: '#DB2777' },
+  ];
+  for (const subject of BASE_SUBJECTS) {
+    await dbPut('subjects', baseRecord(uid('subject'), {
+      ...subject, maxScore: 100, passScore: 50, gradeLevelIds: [], createdBy, updatedBy: createdBy,
+    }));
+  }
+
+  await dbPut('auditLogs', auditRecord('FOUNDATION_SEEDED', 'academicYear', year.id, null, {
+    grades: order - 1, subjects: BASE_SUBJECTS.length,
+  }));
+}
+
 function showFirstRun() {
   $('#auth-screen').hidden = false;
   $('#app-shell').hidden = true;
@@ -805,6 +869,13 @@ function showFirstRun() {
           <option value="full">الإدارة الكاملة — الرسوم وحسابات أولياء الأمور</option>
           <option value="basic">الأساسية — الطلاب والحضور والدرجات فقط</option>
         </select></div>
+      <div class="field field--full">
+        <label>المراحل الدراسية</label>
+        <p style="margin:2px 0 8px;font-size:13px;opacity:.75">تُنشأ الصفوف المطابقة تلقائيًا — يمكن إضافة أو حذف صفوف لاحقًا من "الفصول والمواد".</p>
+        <label class="selection-option"><input type="checkbox" name="stage" value="elementary" checked> ابتدائي (١ – ٦)</label>
+        <label class="selection-option"><input type="checkbox" name="stage" value="preparatory" checked> إعدادي (٧ – ٩)</label>
+        <label class="selection-option"><input type="checkbox" name="stage" value="secondary" checked> ثانوي (١٠ – ١٢)</label>
+      </div>
       <div class="field"><label>اسم الدخول</label>
         <input name="username" required dir="ltr" pattern="[A-Za-z0-9._-]{3,40}" placeholder="admin"></div>
       <div class="field"><label>كلمة المرور</label>
@@ -842,6 +913,7 @@ function showFirstRun() {
       // يمنع ensureBrandIdentity من الكتابة فوق الاسم الذي اختاره المستخدم.
       await dbPut('settings', { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: admin.id });
       await dbPut('auditLogs', auditRecord('SYSTEM_INITIALISED', 'user', admin.id, null, { username }));
+      await seedFoundation({ createdBy: admin.id, stages: new FormData(event.target).getAll('stage') });
       location.replace(location.pathname);
     } catch (problem) {
       error.textContent = problem.message;
@@ -1270,6 +1342,11 @@ async function renderAcademics() {
   const visibleAssignments = state.user.role === 'teacher' ? assignments.filter(assignment => assignment.teacherId === state.user.profileId) : assignments;
   $('#view-root').innerHTML = `<div class="page">${renderPageHeader('الفصول والمواد','إعداد الهيكل الأكاديمي والمواد والتكليفات للسنة النشطة.', state.user.role === 'admin' ? '<button class="button button--primary" id="add-assignment">＋ تكليف معلم</button><button class="button button--secondary" id="add-section">＋ شعبة جديدة</button><button class="button button--secondary" id="add-subject">＋ مادة جديدة</button>' : '')}
     <section class="card" style="margin-bottom:16px"><div class="metric-strip"><div class="metric-chip"><small>السنة النشطة</small><strong>${escapeHtml(activeYear?.name || '—')}</strong></div><div class="metric-chip"><small>الصفوف</small><strong>${grades.filter(g=>g.status==='active').length}</strong></div><div class="metric-chip"><small>الشعب</small><strong>${sections.filter(s=>s.status==='active').length}</strong></div><div class="metric-chip"><small>المواد</small><strong>${subjects.filter(s=>s.status==='active').length}</strong></div><div class="metric-chip"><small>التكليفات</small><strong>${visibleAssignments.filter(a=>a.status==='active').length}</strong></div></div></section>
+    ${state.user.role === 'admin' ? `<section class="card" style="margin-bottom:16px"><header class="card__header"><div><h3>السنوات الدراسية والصفوف</h3><p>الخطوة الأولى قبل أي شعبة أو طالب أو معلم — بلا سنة نشطة لا يمكن المتابعة.</p></div><div style="display:flex;gap:8px"><button class="button button--secondary" id="add-year">＋ سنة دراسية</button><button class="button button--secondary" id="add-grade">＋ صف دراسي</button></div></header>
+      <div class="grid grid--2">
+        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">السنوات</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>السنة</th><th>البداية</th><th>النهاية</th><th>الحالة</th><th></th></tr></thead><tbody>${years.filter(y=>y.status==='active').map(y=>`<tr><td data-label="السنة">${escapeHtml(y.name)}</td><td data-label="البداية">${formatDate(y.startsOn)}</td><td data-label="النهاية">${formatDate(y.endsOn)}</td><td data-label="الحالة">${y.isActive?'<span class="status status--success">نشطة</span>':'<span class="status">غير نشطة</span>'}</td><td data-label="">${y.isActive?'':`<button class="button button--secondary" data-activate-year="${y.id}">تفعيل</button>`}</td></tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد سنوات بعد','أضف السنة الدراسية الأولى.')}</td></tr>`}</tbody></table></div></div>
+        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">الصفوف</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>الصف</th><th>الرمز</th><th>المرحلة</th></tr></thead><tbody>${grades.filter(g=>g.status==='active').map(g=>`<tr><td data-label="الصف">${escapeHtml(g.name)}</td><td data-label="الرمز" dir="ltr">${escapeHtml(g.code)}</td><td data-label="المرحلة">${escapeHtml(g.stage||'—')}</td></tr>`).join('') || `<tr><td colspan="3">${renderEmpty('لا توجد صفوف بعد','أضف الصف الأول.')}</td></tr>`}</tbody></table></div></div>
+      </div></section>` : ''}
     <section class="grid grid--2"><article class="card"><header class="card__header"><div><h3>الشعب الدراسية</h3><p>السعة والمربي والغرفة</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>الشعبة</th><th>الصف</th><th>السعة</th><th>المربي</th></tr></thead><tbody>${sections.filter(s=>s.status==='active').map(s=>`<tr><td data-label="الشعبة"><strong>${escapeHtml(s.name)}</strong><small style="display:block;color:var(--muted)">${escapeHtml(s.room||'')}</small></td><td data-label="الصف">${escapeHtml(gradeMap.get(s.gradeLevelId)?.name||'')}</td><td data-label="السعة">${s.capacity}</td><td data-label="المربي">${escapeHtml(teacherMap.get(s.homeroomTeacherId)?.fullName||'غير محدد')}</td></tr>`).join('')}</tbody></table></div></article>
     <article class="card"><header class="card__header"><div><h3>المواد الدراسية</h3><p>الدرجات وحد النجاح</p></div></header><div class="bar-list">${subjects.filter(s=>s.status==='active').map(s=>`<div class="bar-row" style="grid-template-columns:110px 1fr 70px"><span><i style="display:inline-block;width:8px;height:8px;background:${escapeHtml(s.color)};border-radius:3px;margin-inline-end:5px"></i>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill" style="width:${s.passScore}%;background:${escapeHtml(s.color)}"></div></div><strong>${s.passScore}/${s.maxScore}</strong></div>`).join('')}</div></article></section>
     <section class="card data-card" style="margin-top:16px"><header class="card__header"><div><h3>تكليفات المعلمين</h3><p>الرابط الرسمي بين المعلم والمادة والشعبة؛ ومنه تُنشأ الحصص والتقييمات والصلاحيات.</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>المعلم</th><th>المادة</th><th>الشعبة</th><th>الفصل</th><th>الحالة</th></tr></thead><tbody>${visibleAssignments.filter(assignment => assignment.status === 'active').map(assignment => `<tr><td data-label="المعلم">${escapeHtml(teacherMap.get(assignment.teacherId)?.fullName || '—')}</td><td data-label="المادة">${escapeHtml(subjectMap.get(assignment.subjectId)?.name || '—')}</td><td data-label="الشعبة">${escapeHtml(sectionMap.get(assignment.sectionId)?.name || '—')}</td><td data-label="الفصل">${escapeHtml(activeYear?.terms?.find(term => term.id === assignment.termId)?.name || '—')}</td><td data-label="الحالة">${statusBadge(assignment.status)}</td></tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد تكليفات','أضف تكليفاً لربط المعلم بالمادة والشعبة.')}</td></tr>`}</tbody></table></div></section>
@@ -1277,6 +1354,9 @@ async function renderAcademics() {
   $('#add-assignment')?.addEventListener('click', () => openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, assignments, onSaved: renderAcademics }));
   $('#add-section')?.addEventListener('click', () => openSectionForm({ activeYear, grades, teachers }));
   $('#add-subject')?.addEventListener('click', openSubjectForm);
+  $('#add-year')?.addEventListener('click', () => openAcademicYearForm({ hasActiveYear: !!activeYear }));
+  $('#add-grade')?.addEventListener('click', openGradeLevelForm);
+  $$('[data-activate-year]').forEach(button => button.addEventListener('click', () => activateAcademicYear(button.dataset.activateYear)));
 }
 
 function openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, assignments, teacherId = '', onSaved = renderAcademics }) {
@@ -1340,6 +1420,100 @@ function openSectionForm({ activeYear, grades, teachers }) {
   openModal({ title:'إضافة شعبة دراسية', kicker:'الهيكل الأكاديمي', body:`<form id="section-form" class="form-grid"><div class="field"><label>اسم الشعبة *</label><input name="name" required placeholder="مثال: السابع ج"></div><div class="field"><label>الصف *</label><select name="gradeLevelId" required><option value="">اختر الصف</option>${grades.filter(g=>g.status==='active').map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select></div><div class="field"><label>السعة *</label><input name="capacity" type="number" min="1" max="60" required value="30"></div><div class="field"><label>الغرفة</label><input name="room" placeholder="A-10"></div><div class="field field--full"><label>مربي الشعبة</label><select name="homeroomTeacherId"><option value="">غير محدد</option>${teachers.filter(t=>t.status==='active').map(t=>`<option value="${t.id}">${escapeHtml(t.fullName)}</option>`).join('')}</select></div><p class="form-message field--full" id="section-message"></p></form>`, footer:'<button class="button button--primary" id="save-section">إضافة الشعبة</button><button class="button button--secondary" data-modal-close>إلغاء</button>', onOpen:()=>{
     $('#save-section').addEventListener('click',async()=>{ const form=$('#section-form'); if(!form.reportValidity())return; const data=Object.fromEntries(new FormData(form)); const duplicate=(await dbGetAll('sections')).find(s=>s.academicYearId===activeYear.id&&normalizeArabic(s.name)===normalizeArabic(data.name)); if(duplicate){$('#section-message').textContent='اسم الشعبة موجود في السنة الحالية.';return;} const section=baseRecord(uid('section'),{academicYearId:activeYear.id,gradeLevelId:data.gradeLevelId,name:data.name.trim(),capacity:Number(data.capacity),room:data.room.trim(),homeroomTeacherId:data.homeroomTeacherId||null,createdBy:state.user.id,updatedBy:state.user.id}); await dbPut('sections',section); await audit('SECTION_CREATED','section',section.id,null,{name:section.name}); closeModal();showToast('تمت الإضافة','أضيفت الشعبة الجديدة.','success');renderAcademics(); });
   }});
+}
+
+/** أول شيء يُنشأ في أي مدرسة جديدة — بلا سنة نشطة لا يمكن إضافة شعبة أو طالب. */
+function openAcademicYearForm({ hasActiveYear }) {
+  const today = new Date();
+  const suggestedName = `${today.getFullYear()} / ${today.getFullYear() + 1}`;
+  openModal({
+    title: 'إضافة سنة دراسية', kicker: 'الهيكل الأكاديمي',
+    body: `<form id="year-form" class="form-grid">
+      <div class="field field--full"><label>اسم السنة *</label><input name="name" required value="${escapeHtml(suggestedName)}" placeholder="2026 / 2027"></div>
+      <div class="field"><label>تاريخ البداية *</label><input name="startsOn" type="date" required></div>
+      <div class="field"><label>تاريخ النهاية *</label><input name="endsOn" type="date" required></div>
+      <div class="field field--full"><label><input type="checkbox" name="isActive" ${hasActiveYear ? '' : 'checked disabled'}> تفعيل هذه السنة الآن${hasActiveYear ? ' (يوجد سنة نشطة بالفعل — عطّلها أولاً من الجدول لتفعيل غيرها)' : ''}</label></div>
+      <p class="form-message field--full" id="year-message"></p>
+    </form>`,
+    footer: '<button class="button button--primary" id="save-year">إضافة السنة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    onOpen: () => {
+      $('#save-year').addEventListener('click', async () => {
+        const form = $('#year-form');
+        if (!form.reportValidity()) return;
+        const data = Object.fromEntries(new FormData(form));
+        if (data.endsOn <= data.startsOn) { $('#year-message').textContent = 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية.'; return; }
+        const makeActive = !hasActiveYear || data.isActive === 'on';
+        if (makeActive) {
+          // سنة نشطة واحدة فقط في كل وقت — نُطفئ أي سنة أخرى أولاً.
+          const years = await dbGetAll('academicYears');
+          for (const year of years.filter(y => y.isActive)) {
+            await dbPut('academicYears', { ...year, isActive: false, updatedAt: nowIso(), updatedBy: state.user.id });
+          }
+        }
+        const year = baseRecord(uid('year'), {
+          name: data.name.trim(), startsOn: data.startsOn, endsOn: data.endsOn, isActive: makeActive,
+          // فصلان افتراضيان قابلان للتعديل لاحقًا — التكليفات والتقييمات كلها
+          // تُنشأ داخل فصل، فسنة بلا فصول تمنع أي عمل أكاديمي فيها.
+          terms: [
+            { id: uid('term'), name: 'الفصل الأول', startsOn: data.startsOn, endsOn: data.endsOn },
+            { id: uid('term'), name: 'الفصل الثاني', startsOn: data.startsOn, endsOn: data.endsOn },
+          ],
+          createdBy: state.user.id, updatedBy: state.user.id,
+        });
+        await dbPut('academicYears', year);
+        await audit('ACADEMIC_YEAR_CREATED', 'academicYear', year.id, null, { name: year.name, isActive: makeActive });
+        closeModal();
+        showToast('تمت الإضافة', 'أضيفت السنة الدراسية.', 'success');
+        renderAcademics();
+      });
+    },
+  });
+}
+
+async function activateAcademicYear(yearId) {
+  const years = await dbGetAll('academicYears');
+  for (const year of years) {
+    const shouldBeActive = year.id === yearId;
+    if (year.isActive !== shouldBeActive) {
+      await dbPut('academicYears', { ...year, isActive: shouldBeActive, updatedAt: nowIso(), updatedBy: state.user.id });
+    }
+  }
+  await audit('ACADEMIC_YEAR_ACTIVATED', 'academicYear', yearId, null, {});
+  showToast('تم التفعيل', 'أصبحت هذه السنة هي السنة النشطة.', 'success');
+  renderAcademics();
+}
+
+/** ثاني خطوة بعد السنة الدراسية — الشعبة تحتاج صفًّا موجودًا لتُنشأ. */
+function openGradeLevelForm() {
+  openModal({
+    title: 'إضافة صف دراسي', kicker: 'الهيكل الأكاديمي',
+    body: `<form id="grade-form" class="form-grid">
+      <div class="field"><label>اسم الصف *</label><input name="name" required placeholder="الصف السابع"></div>
+      <div class="field"><label>الرمز *</label><input name="code" required dir="ltr" placeholder="G07"></div>
+      <div class="field field--full"><label>المرحلة</label><input name="stage" placeholder="المرحلة الأساسية العليا"></div>
+      <p class="form-message field--full" id="grade-message"></p>
+    </form>`,
+    footer: '<button class="button button--primary" id="save-grade">إضافة الصف</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    onOpen: () => {
+      $('#save-grade').addEventListener('click', async () => {
+        const form = $('#grade-form');
+        if (!form.reportValidity()) return;
+        const data = Object.fromEntries(new FormData(form));
+        const code = data.code.trim().toUpperCase();
+        if ((await dbIndexAll('gradeLevels', 'code', code))[0]) { $('#grade-message').textContent = 'رمز الصف مستخدم بالفعل.'; return; }
+        const grades = await dbGetAll('gradeLevels');
+        const grade = baseRecord(uid('grade'), {
+          code, name: data.name.trim(), stage: data.stage.trim(),
+          order: grades.length + 1, createdBy: state.user.id, updatedBy: state.user.id,
+        });
+        await dbPut('gradeLevels', grade);
+        await audit('GRADE_LEVEL_CREATED', 'gradeLevel', grade.id, null, { name: grade.name });
+        closeModal();
+        showToast('تمت الإضافة', 'أضيف الصف الدراسي.', 'success');
+        renderAcademics();
+      });
+    },
+  });
 }
 
 function openSubjectForm() {
@@ -1463,7 +1637,7 @@ async function renderCertificates(){const [certificates,students]=await Promise.
   <section class="grid grid--3">${visible.map(c=>`<article class="card"><header class="card__header"><div><h3>${escapeHtml(studentMap.get(c.studentId)?.fullName||'')}</h3><p>${escapeHtml(c.certificateNo)}</p></div>${statusBadge(c.status)}</header><p><strong>الفصل:</strong> ${escapeHtml(c.snapshot?.termName||'الفصل الأول')}</p><p><strong>المعدل:</strong> ${c.snapshot?.average??0}%</p><p><strong>النتيجة:</strong> ${c.snapshot?.result||'—'}</p><div class="page-actions"><button class="button button--secondary" data-view-certificate="${c.id}">عرض وطباعة</button></div></article>`).join('')||renderEmpty('لا توجد شهادات','لم تصدر شهادة ضمن نطاق حسابك بعد.')}</section></div>`;
   $('#issue-certificate')?.addEventListener('click',()=>openCertificateIssuer(students));$$('[data-view-certificate]').forEach(b=>b.addEventListener('click',()=>openCertificate(visible.find(c=>c.id===b.dataset.viewCertificate),studentMap.get(visible.find(c=>c.id===b.dataset.viewCertificate)?.studentId))));}
 
-function openCertificateIssuer(students){openModal({title:'إصدار شهادة',kicker:'الشهادات',body:`<form id="certificate-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${students.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><p class="form-message field--full" id="certificate-message"></p></form>`,footer:'<button class="button button--primary" id="save-certificate">إصدار الشهادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-certificate').addEventListener('click',async()=>{const form=$('#certificate-form');if(!form.reportValidity())return;const studentId=new FormData(form).get('studentId');const assessments=(await dbGetAll('assessments')).filter(a=>a.status==='published'),entries=(await dbIndexAll('gradeEntries','studentId',studentId)).filter(e=>e.entryStatus==='graded'),subjects=await dbGetAll('subjects');const subjectMap=new Map(subjects.map(s=>[s.id,s]));const rows=[];for(const a of assessments){const e=entries.find(x=>x.assessmentId===a.id),subject=subjectMap.get(a.subjectId);if(e)rows.push({subjectId:a.subjectId,subjectName:subject?.name||'',assessment:a.name,score:e.score,maxScore:a.maxScore,percentage:Math.round(e.score/a.maxScore*100),passScore:subject?.passScore??50});}if(!rows.length){$('#certificate-message').textContent='لا توجد نتائج منشورة لهذا الطالب.';return;}const existing=(await dbIndexAll('certificates','studentId',studentId)).find(item=>item.status==='active');if(existing){$('#certificate-message').textContent=`توجد شهادة نشطة بالفعل برقم ${existing.certificateNo}. يجب إضافة دورة الإلغاء والاستبدال قبل إصدار نسخة جديدة.`;return;}const average=Math.round(rows.reduce((s,r)=>s+r.percentage,0)/rows.length),passed=rows.every(row=>row.percentage>=row.passScore);const count=await dbCount('certificates');const activeYear=(await dbGetAll('academicYears')).find(year=>year.isActive);const yearCode=String(activeYear?.name||new Date().getFullYear()).match(/\d{4}/)?.[0]||String(new Date().getFullYear());const certificatePrefix=String(state.schoolProfile.certificatePrefix||'RGS').toUpperCase();const certificate=baseRecord(uid('certificate'),{certificateNo:`${certificatePrefix}-${yearCode}-${String(count+1).padStart(4,'0')}`,studentId,academicYearId:activeYear?.id||'year-2026',termId:'term-1',snapshot:{termName:activeYear?.terms?.find(term=>term.id==='term-1')?.name||'الفصل الأول',rows,average,result:passed?'ناجح':'يحتاج متابعة'},issuedAt:nowIso(),issuedBy:state.user.id,status:'active',supersedesId:null,voidReason:null,createdBy:state.user.id,updatedBy:state.user.id});await dbPut('certificates',certificate);await audit('CERTIFICATE_ISSUED','certificate',certificate.id,null,{certificateNo:certificate.certificateNo,studentId});closeModal();showToast('تم إصدار الشهادة',certificate.certificateNo,'success');renderCertificates();});}});}
+function openCertificateIssuer(students){openModal({title:'إصدار شهادة',kicker:'الشهادات',body:`<form id="certificate-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${students.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><p class="form-message field--full" id="certificate-message"></p></form>`,footer:'<button class="button button--primary" id="save-certificate">إصدار الشهادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-certificate').addEventListener('click',async()=>{const form=$('#certificate-form');if(!form.reportValidity())return;const studentId=new FormData(form).get('studentId');const assessments=(await dbGetAll('assessments')).filter(a=>a.status==='published'),entries=(await dbIndexAll('gradeEntries','studentId',studentId)).filter(e=>e.entryStatus==='graded'),subjects=await dbGetAll('subjects');const subjectMap=new Map(subjects.map(s=>[s.id,s]));const rows=[];for(const a of assessments){const e=entries.find(x=>x.assessmentId===a.id),subject=subjectMap.get(a.subjectId);if(e)rows.push({subjectId:a.subjectId,subjectName:subject?.name||'',assessment:a.name,score:e.score,maxScore:a.maxScore,percentage:Math.round(e.score/a.maxScore*100),passScore:subject?.passScore??50});}if(!rows.length){$('#certificate-message').textContent='لا توجد نتائج منشورة لهذا الطالب.';return;}const existing=(await dbIndexAll('certificates','studentId',studentId)).find(item=>item.status==='active');if(existing){$('#certificate-message').textContent=`توجد شهادة نشطة بالفعل برقم ${existing.certificateNo}. يجب إضافة دورة الإلغاء والاستبدال قبل إصدار نسخة جديدة.`;return;}const activeYear=(await dbGetAll('academicYears')).find(year=>year.isActive);if(!activeYear){$('#certificate-message').textContent='لا توجد سنة دراسية نشطة. أنشئها أولاً من صفحة الفصول والمواد.';return;}const average=Math.round(rows.reduce((s,r)=>s+r.percentage,0)/rows.length),passed=rows.every(row=>row.percentage>=row.passScore);const count=await dbCount('certificates');const yearCode=String(activeYear.name).match(/\d{4}/)?.[0]||String(new Date().getFullYear());const certificatePrefix=String(state.schoolProfile.certificatePrefix||'RGS').toUpperCase();const certificate=baseRecord(uid('certificate'),{certificateNo:`${certificatePrefix}-${yearCode}-${String(count+1).padStart(4,'0')}`,studentId,academicYearId:activeYear.id,termId:activeYear.terms?.[0]?.id||null,snapshot:{termName:activeYear.terms?.[0]?.name||'الفصل الحالي',rows,average,result:passed?'ناجح':'يحتاج متابعة'},issuedAt:nowIso(),issuedBy:state.user.id,status:'active',supersedesId:null,voidReason:null,createdBy:state.user.id,updatedBy:state.user.id});await dbPut('certificates',certificate);await audit('CERTIFICATE_ISSUED','certificate',certificate.id,null,{certificateNo:certificate.certificateNo,studentId});closeModal();showToast('تم إصدار الشهادة',certificate.certificateNo,'success');renderCertificates();});}});}
 
 async function openCertificate(certificate, student) {
   const school = normalizeSchoolProfile((await getSetting('schoolProfile'))?.value);
@@ -1512,9 +1686,9 @@ async function renderFinance(){const ctx=await financeContext();const canManage=
 
 function openInvoiceDetails(ctx,id){const i=ctx.allInvoices.find(x=>x.id===id),student=ctx.studentMap.get(i.studentId),payments=ctx.payments.filter(p=>p.invoiceId===i.id);openModal({title:`فاتورة ${i.invoiceNo}`,kicker:student?.fullName||'',body:`<div class="grid grid--3"><div class="metric-chip"><small>الإجمالي</small><strong>${formatMoney(i.totalMinor)}</strong></div><div class="metric-chip"><small>المدفوع</small><strong>${formatMoney(i.paidMinor)}</strong></div><div class="metric-chip"><small>المتبقي</small><strong>${formatMoney(i.balanceMinor)}</strong></div></div><h3>البنود</h3><div class="table-wrap"><table class="data-table"><tbody>${(i.items||[]).map(item=>`<tr><td>${escapeHtml(item.label)}</td><td>${formatMoney(item.amountMinor)}</td></tr>`).join('')}</tbody></table></div><h3>الدفعات</h3>${payments.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>الإيصال</th><th>المبلغ</th><th>التاريخ</th><th>الحالة</th></tr></thead><tbody>${payments.map(p=>`<tr><td>${escapeHtml(p.receiptNo)}</td><td>${formatMoney(p.amountMinor)}</td><td>${formatDate(p.paidAt)}</td><td>${statusBadge(p.status)}</td></tr>`).join('')}</tbody></table></div>`:renderEmpty('لا دفعات','لم تسجل دفعات لهذه الفاتورة.')}`,footer:'<button class="button button--secondary" data-modal-close>إغلاق</button><button class="button button--primary" id="print-invoice">طباعة</button>',onOpen:()=>{$('#print-invoice').addEventListener('click',()=>window.print());}});}
 
-function openInvoiceForm(ctx){openModal({title:'إنشاء فاتورة',kicker:'المالية',body:`<form id="invoice-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${ctx.allStudents.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><div class="field"><label>المبلغ الأساسي *</label><input name="subtotal" type="number" min="0.01" step="0.01" required value="2000"></div><div class="field"><label>الخصم</label><input name="discount" type="number" min="0" step="0.01" value="0"></div><div class="field"><label>الاستحقاق *</label><input name="dueDate" type="date" required value="${new Date(Date.now()+30*86400000).toISOString().slice(0,10)}"></div><div class="field"><label>وصف البند</label><input name="label" value="القسط الدراسي"></div><p class="form-message field--full" id="invoice-message"></p></form>`,footer:'<button class="button button--primary" id="save-invoice">إصدار الفاتورة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-invoice').addEventListener('click',async()=>{const form=$('#invoice-form');if(!form.reportValidity())return;const d=Object.fromEntries(new FormData(form)),subtotal=Math.round(Number(d.subtotal)*100),discount=Math.round(Number(d.discount||0)*100);if(discount>subtotal){$('#invoice-message').textContent='الخصم لا يمكن أن يتجاوز المبلغ الأساسي.';return;}const count=await dbCount('invoices'),total=subtotal-discount;const invoice=baseRecord(uid('invoice'),{invoiceNo:`INV-2026-${String(count+1).padStart(4,'0')}`,studentId:d.studentId,academicYearId:'year-2026',feePlanId:null,items:[{code:'CUSTOM',label:d.label.trim()||'رسوم مدرسية',amountMinor:subtotal}],subtotalMinor:subtotal,discountMinor:discount,adjustmentsMinor:0,totalMinor:total,paidMinor:0,balanceMinor:total,dueDate:d.dueDate,status:'unpaid',createdBy:state.user.id,updatedBy:state.user.id});await dbPut('invoices',invoice);await audit('INVOICE_ISSUED','invoice',invoice.id,null,{invoiceNo:invoice.invoiceNo,totalMinor:total,studentId:d.studentId});closeModal();showToast('تم إصدار الفاتورة',invoice.invoiceNo,'success');renderFinance();});}});}
+function openInvoiceForm(ctx){openModal({title:'إنشاء فاتورة',kicker:'المالية',body:`<form id="invoice-form" class="form-grid"><div class="field field--full"><label>الطالب *</label><select name="studentId" required><option value="">اختر الطالب</option>${ctx.allStudents.filter(s=>s.status==='active').map(s=>`<option value="${s.id}">${escapeHtml(s.fullName)} — ${escapeHtml(s.admissionNo)}</option>`).join('')}</select></div><div class="field"><label>المبلغ الأساسي *</label><input name="subtotal" type="number" min="0.01" step="0.01" required value="2000"></div><div class="field"><label>الخصم</label><input name="discount" type="number" min="0" step="0.01" value="0"></div><div class="field"><label>الاستحقاق *</label><input name="dueDate" type="date" required value="${new Date(Date.now()+30*86400000).toISOString().slice(0,10)}"></div><div class="field"><label>وصف البند</label><input name="label" value="القسط الدراسي"></div><p class="form-message field--full" id="invoice-message"></p></form>`,footer:'<button class="button button--primary" id="save-invoice">إصدار الفاتورة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-invoice').addEventListener('click',async()=>{const form=$('#invoice-form');if(!form.reportValidity())return;const activeYear=(await dbGetAll('academicYears')).find(y=>y.isActive);if(!activeYear){$('#invoice-message').textContent='لا توجد سنة دراسية نشطة. أنشئها أولاً من صفحة الفصول والمواد.';return;}const d=Object.fromEntries(new FormData(form)),subtotal=Math.round(Number(d.subtotal)*100),discount=Math.round(Number(d.discount||0)*100);if(discount>subtotal){$('#invoice-message').textContent='الخصم لا يمكن أن يتجاوز المبلغ الأساسي.';return;}const count=await dbCount('invoices'),total=subtotal-discount;const yearCode=String(activeYear.name).match(/\d{4}/)?.[0]||String(new Date().getFullYear());const invoice=baseRecord(uid('invoice'),{invoiceNo:`INV-${yearCode}-${String(count+1).padStart(4,'0')}`,studentId:d.studentId,academicYearId:activeYear.id,feePlanId:null,items:[{code:'CUSTOM',label:d.label.trim()||'رسوم مدرسية',amountMinor:subtotal}],subtotalMinor:subtotal,discountMinor:discount,adjustmentsMinor:0,totalMinor:total,paidMinor:0,balanceMinor:total,dueDate:d.dueDate,status:'unpaid',createdBy:state.user.id,updatedBy:state.user.id});await dbPut('invoices',invoice);await audit('INVOICE_ISSUED','invoice',invoice.id,null,{invoiceNo:invoice.invoiceNo,totalMinor:total,studentId:d.studentId});closeModal();showToast('تم إصدار الفاتورة',invoice.invoiceNo,'success');renderFinance();});}});}
 
-function openPaymentForm(ctx,invoiceId=''){const unpaid=ctx.allInvoices.filter(i=>i.balanceMinor>0&&i.status!=='voided');openModal({title:'تسجيل دفعة',kicker:'المدفوعات',body:`<form id="payment-form" class="form-grid"><div class="field field--full"><label>الفاتورة *</label><select name="invoiceId" id="payment-invoice" required><option value="">اختر الفاتورة</option>${unpaid.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNo)} — ${escapeHtml(ctx.studentMap.get(i.studentId)?.fullName||'')} — متبقي ${formatMoney(i.balanceMinor)}</option>`).join('')}</select></div><div class="field"><label>المبلغ *</label><input name="amount" id="payment-amount" type="number" min="0.01" step="0.01" required></div><div class="field"><label>الطريقة</label><select name="method"><option value="cash">نقدي</option><option value="bank_transfer">تحويل بنكي</option><option value="local_card">بطاقة محلية</option><option value="other">أخرى</option></select></div><div class="field field--full"><label>المرجع</label><input name="reference"></div><p class="form-message field--full" id="payment-message"></p></form>`,footer:'<button class="button button--success" id="save-payment">تسجيل وإصدار إيصال</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{const sync=()=>{const i=unpaid.find(x=>x.id===$('#payment-invoice').value);if(i)$('#payment-amount').value=(i.balanceMinor/100).toFixed(2);};$('#payment-invoice').addEventListener('change',sync);sync();$('#save-payment').addEventListener('click',async()=>{const form=$('#payment-form');if(!form.reportValidity())return;const d=Object.fromEntries(new FormData(form)),invoice=unpaid.find(i=>i.id===d.invoiceId),amount=Math.round(Number(d.amount)*100);if(!invoice){$('#payment-message').textContent='اختر فاتورة صحيحة.';return;}if(amount<=0||amount>invoice.balanceMinor){$('#payment-message').textContent=`المبلغ يجب أن يكون أكبر من صفر ولا يتجاوز ${formatMoney(invoice.balanceMinor)}.`;return;}const count=await dbCount('payments'),payment=baseRecord(uid('payment'),{receiptNo:`REC-2026-${String(count+1).padStart(4,'0')}`,invoiceId:invoice.id,studentId:invoice.studentId,amountMinor:amount,method:d.method,reference:d.reference.trim(),paidAt:nowIso(),status:'posted',voidReason:null,voidedAt:null,voidedBy:null,createdBy:state.user.id,updatedBy:state.user.id}),updated={...invoice,paidMinor:invoice.paidMinor+amount,balanceMinor:invoice.balanceMinor-amount,updatedAt:nowIso(),updatedBy:state.user.id};updated.status=calculateInvoiceStatus(updated);await atomicWrite(['payments','invoices','auditLogs'],async stores=>{stores.payments.put(payment);stores.invoices.put(updated);stores.auditLogs.put(auditRecord('PAYMENT_POSTED','payment',payment.id,null,{receiptNo:payment.receiptNo,amountMinor:amount,invoiceId:invoice.id}));});closeModal();showToast('تم تسجيل الدفعة',`رقم الإيصال ${payment.receiptNo}`,'success');renderFinance();});}});}
+function openPaymentForm(ctx,invoiceId=''){const unpaid=ctx.allInvoices.filter(i=>i.balanceMinor>0&&i.status!=='voided');openModal({title:'تسجيل دفعة',kicker:'المدفوعات',body:`<form id="payment-form" class="form-grid"><div class="field field--full"><label>الفاتورة *</label><select name="invoiceId" id="payment-invoice" required><option value="">اختر الفاتورة</option>${unpaid.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNo)} — ${escapeHtml(ctx.studentMap.get(i.studentId)?.fullName||'')} — متبقي ${formatMoney(i.balanceMinor)}</option>`).join('')}</select></div><div class="field"><label>المبلغ *</label><input name="amount" id="payment-amount" type="number" min="0.01" step="0.01" required></div><div class="field"><label>الطريقة</label><select name="method"><option value="cash">نقدي</option><option value="bank_transfer">تحويل بنكي</option><option value="local_card">بطاقة محلية</option><option value="other">أخرى</option></select></div><div class="field field--full"><label>المرجع</label><input name="reference"></div><p class="form-message field--full" id="payment-message"></p></form>`,footer:'<button class="button button--success" id="save-payment">تسجيل وإصدار إيصال</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{const sync=()=>{const i=unpaid.find(x=>x.id===$('#payment-invoice').value);if(i)$('#payment-amount').value=(i.balanceMinor/100).toFixed(2);};$('#payment-invoice').addEventListener('change',sync);sync();$('#save-payment').addEventListener('click',async()=>{const form=$('#payment-form');if(!form.reportValidity())return;const d=Object.fromEntries(new FormData(form)),invoice=unpaid.find(i=>i.id===d.invoiceId),amount=Math.round(Number(d.amount)*100);if(!invoice){$('#payment-message').textContent='اختر فاتورة صحيحة.';return;}if(amount<=0||amount>invoice.balanceMinor){$('#payment-message').textContent=`المبلغ يجب أن يكون أكبر من صفر ولا يتجاوز ${formatMoney(invoice.balanceMinor)}.`;return;}const activeYear=(await dbGetAll('academicYears')).find(y=>y.isActive);const yearCode=String(activeYear?.name||new Date().getFullYear()).match(/\d{4}/)?.[0]||String(new Date().getFullYear());const count=await dbCount('payments'),payment=baseRecord(uid('payment'),{receiptNo:`REC-${yearCode}-${String(count+1).padStart(4,'0')}`,invoiceId:invoice.id,studentId:invoice.studentId,amountMinor:amount,method:d.method,reference:d.reference.trim(),paidAt:nowIso(),status:'posted',voidReason:null,voidedAt:null,voidedBy:null,createdBy:state.user.id,updatedBy:state.user.id}),updated={...invoice,paidMinor:invoice.paidMinor+amount,balanceMinor:invoice.balanceMinor-amount,updatedAt:nowIso(),updatedBy:state.user.id};updated.status=calculateInvoiceStatus(updated);await atomicWrite(['payments','invoices','auditLogs'],async stores=>{stores.payments.put(payment);stores.invoices.put(updated);stores.auditLogs.put(auditRecord('PAYMENT_POSTED','payment',payment.id,null,{receiptNo:payment.receiptNo,amountMinor:amount,invoiceId:invoice.id}));});closeModal();showToast('تم تسجيل الدفعة',`رقم الإيصال ${payment.receiptNo}`,'success');renderFinance();});}});}
 
 async function renderReports(){const data=await dashboardData();const sectionMap=new Map(data.sections.map(s=>[s.id,s]));const alerts=[];if(data.attendanceRate<85)alerts.push({type:'danger',title:'انخفاض في الحضور',body:`بلغت نسبة الحضور ${data.attendanceRate}% ضمن نطاق العرض، وهي أقل من حد المتابعة 85%.`,action:'راجع سجلات الغياب',route:'attendance'});if(schoolAllows('finance')&&data.outstanding>0)alerts.push({type:'warning',title:'أرصدة تحتاج متابعة',body:`إجمالي الرصيد المستحق ${formatMoney(data.outstanding)}. هذا التنبيه مالي فقط ولا يدخل في تقييم الطلاب.`,action:'افتح التقرير المالي',route:'finance'});if(data.gradeAverage<65)alerts.push({type:'danger',title:'متوسط أداء منخفض',body:`متوسط النتائج المنشورة ${data.gradeAverage}% ويستحسن مراجعة التقييمات الناقصة.`,action:'راجع الدرجات',route:'grades'});if(!alerts.length)alerts.push({type:'success',title:'المؤشرات ضمن النطاق المتوقع',body:'لا توجد قواعد متابعة حرجة وفق البيانات الحالية.',action:'عرض لوحة التحكم',route:'dashboard'});const sectionAttendance=data.sections.map(section=>{const studentIds=new Set(data.enrollments.filter(e=>e.sectionId===section.id).map(e=>e.studentId));const rows=data.records.filter(r=>studentIds.has(r.studentId));return{name:section.name,value:rows.length?Math.round(rows.filter(r=>['present','late'].includes(r.status)).length/rows.length*100):0};});$('#view-root').innerHTML=`<div class="page">${renderPageHeader('التقارير والتحليلات','مؤشرات مبنية على البيانات المحلية مع تفسير مصدر كل تنبيه.','<button class="button button--secondary" id="export-report">تصدير CSV</button>')}
   <section class="grid grid--dashboard"><article class="card span-7"><header class="card__header"><div><h3>الحضور حسب الشعبة</h3><p>النسبة تشمل حاضر ومتأخر ضمن الجلسات المسجلة</p></div></header><div class="bar-list">${sectionAttendance.map(s=>`<div class="bar-row"><span>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill ${s.value>=90?'green':s.value<75?'red':''}" style="width:${s.value}%"></div></div><strong>${s.value}%</strong></div>`).join('')}</div></article><article class="card span-5"><header class="card__header"><div><h3>ملخص المؤشرات</h3><p>القيم الداخلة في التحليل</p></div></header><div class="metric-strip" style="flex-wrap:wrap"><div class="metric-chip"><small>الطلاب</small><strong>${data.students.length}</strong></div><div class="metric-chip"><small>الحضور</small><strong>${data.attendanceRate}%</strong></div><div class="metric-chip"><small>الأداء</small><strong>${data.gradeAverage}%</strong></div>${schoolAllows('finance')?`<div class="metric-chip"><small>المتأخرات</small><strong>${formatMoney(data.outstanding)}</strong></div>`:''}</div></article><article class="card span-12"><header class="card__header"><div><h3>اقتراحات المتابعة الذكية</h3><p>قواعد محلية مفسرة — لا تغيّر أي سجل تلقائيًا</p></div></header><div class="grid grid--3">${alerts.map(a=>`<div class="alert-card is-${a.type}"><span class="alert-card__icon">${a.type==='success'?'✓':'!'}</span><div class="alert-card__copy"><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body)}</p><button data-alert-route="${a.route}">${escapeHtml(a.action)} ←</button></div></div>`).join('')}</div></article></section></div>`;$$('[data-alert-route]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.alertRoute)));$('#export-report').addEventListener('click',()=>downloadCsv('school-report.csv',[['المؤشر','القيمة'],['الطلاب',data.students.length],['الحضور',`${data.attendanceRate}%`],['متوسط الأداء',`${data.gradeAverage}%`],...(schoolAllows('finance')?[['الرصيد',data.outstanding/100]]:[]),...sectionAttendance.map(s=>[`حضور ${s.name}`,`${s.value}%`])]));}
