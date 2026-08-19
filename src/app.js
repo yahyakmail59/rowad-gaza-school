@@ -83,6 +83,7 @@ const NAVIGATION = [
   ]},
   { section: 'النظام', items: [
     { route: 'users', label: 'المستخدمون', icon: '⚿', roles: ['admin'] },
+    { route: 'archive', label: 'الأرشيف', icon: '🗄', roles: ['admin'] },
     { route: 'settings', label: 'الإعدادات والنسخ', icon: '⚙', roles: ['admin'] },
   ]},
 ];
@@ -1814,6 +1815,47 @@ async function validateBackup(payload){if(!payload||![BACKUP_FORMAT,LEGACY_BACKU
 
 async function restoreBackup(payload){await validateBackup(payload);const names=Object.keys(SCHEMA);const tx=state.db.transaction(names,'readwrite');for(const name of names){const store=tx.objectStore(name);store.clear();for(const row of payload.stores[name])store.put(row);}await transactionDone(tx);sessionStorage.clear();}
 
+// الجداول القابلة للأرشفة والاستعادة من صفحة واحدة، مع تسمية عربية لكل واحد
+// واسم الحقل الذي يُعرض في الجدول.
+const ARCHIVABLE_STORES = {
+  gradeLevels: { label: 'الصفوف الدراسية', nameField: 'name', extra: r => r.stage || '' },
+  sections: { label: 'الشعب', nameField: 'name', extra: r => r.room || '' },
+  subjects: { label: 'المواد الدراسية', nameField: 'name', extra: r => r.code || '' },
+  teachers: { label: 'المعلمون', nameField: 'fullName', extra: r => r.employeeNo || '' },
+  students: { label: 'الطلاب', nameField: 'fullName', extra: r => r.admissionNo || '' },
+  guardians: { label: 'أولياء الأمور', nameField: 'fullName', extra: r => r.phone || '' },
+};
+
+/** صفحة واحدة تعرض كل ما أُرشف من كل الجداول، مع زر استعادة لكل سجل. */
+async function renderArchive() {
+  const groups = await Promise.all(Object.entries(ARCHIVABLE_STORES).map(async ([store, info]) => {
+    const records = (await dbGetAll(store)).filter(r => r.status === 'archived');
+    return { store, info, records };
+  }));
+  const totalArchived = groups.reduce((sum, g) => sum + g.records.length, 0);
+
+  $('#view-root').innerHTML = `<div class="page">${renderPageHeader('الأرشيف', 'كل ما أُرشف من صفوف وشعب ومواد ومعلمين وطلاب وأولياء أمور — استعادته فورية وبلا فقدان بيانات.')}
+    ${totalArchived === 0
+      ? `<section class="card">${renderEmpty('الأرشيف فارغ', 'لم يُؤرشف أي سجل بعد. الأرشفة تتم من صفحة كل قسم (مثل الفصول والمواد).')}</section>`
+      : groups.filter(g => g.records.length).map(g => `
+        <section class="card" style="margin-bottom:16px"><header class="card__header"><div><h3>${escapeHtml(g.info.label)}</h3><p>${g.records.length} سجلًا مؤرشفًا</p></div></header>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>الاسم</th><th></th><th>تاريخ الأرشفة</th><th></th></tr></thead><tbody>
+            ${g.records.map(r => `<tr><td data-label="الاسم"><strong>${escapeHtml(r[g.info.nameField] || '—')}</strong></td><td data-label="">${escapeHtml(g.info.extra(r))}</td><td data-label="تاريخ الأرشفة">${formatDate(r.updatedAt)}</td><td data-label=""><button class="button button--secondary" data-restore-store="${g.store}" data-restore-id="${r.id}">استعادة</button></td></tr>`).join('')}
+          </tbody></table></div>
+        </section>`).join('')}
+  </div>`;
+
+  $$('[data-restore-store]').forEach(button => button.addEventListener('click', async () => {
+    const store = button.dataset.restoreStore, id = button.dataset.restoreId;
+    const record = await dbGet(store, id);
+    if (!record) return;
+    await dbPut(store, { ...record, status: 'active', updatedAt: nowIso(), updatedBy: state.user.id });
+    await audit('RECORD_RESTORED', store, id, null, { name: record[ARCHIVABLE_STORES[store].nameField] });
+    showToast('تمت الاستعادة', 'عاد السجل إلى القوائم النشطة.', 'success');
+    renderArchive();
+  }));
+}
+
 async function renderSettings(){const school=normalizeSchoolProfile((await getSetting('schoolProfile'))?.value),policy=(await getSetting('schoolPolicy'))?.value||{},counts=Object.fromEntries(await Promise.all(Object.keys(SCHEMA).map(async name=>[name,await dbCount(name)])));const total=Object.values(counts).reduce((s,n)=>s+n,0);let pendingLogoDataUrl=school.logoDataUrl,pendingLogoPath=school.logoPath||SCHOOL_LOGO;$('#view-root').innerHTML=`<div class="page">${renderPageHeader('الإعدادات والنسخ الاحتياطي','خصص هوية المدرسة والسياسات واحمِ استمرارية البيانات.')}
   <section class="grid grid--2"><article class="card"><header class="card__header"><div><h3>هوية المدرسة</h3><p>تُحدّث صفحة الدخول والقائمة والشهادات فور الحفظ</p></div></header><form id="school-settings" class="form-grid">
     <div class="field field--full"><div class="school-brand-editor"><img id="school-logo-preview" class="school-logo-preview" src="${escapeHtml(getSchoolLogo(school))}" alt="معاينة شعار ${escapeHtml(school.name)}"><div class="school-brand-actions"><strong>شعار المدرسة</strong><small>JPG أو PNG أو WebP، بحد أقصى 3 ميجابايت. يُحفظ محليًا داخل المتصفح.</small><div class="page-actions"><label class="button button--secondary" for="school-logo-input" style="cursor:pointer">اختيار شعار<input id="school-logo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button--ghost" id="reset-school-logo" type="button">استخدام الشعار الافتراضي</button></div></div></div></div>
@@ -1847,7 +1889,7 @@ async function renderProfile(){const info=roleInfo(state.user.role);let profile=
 
 async function globalSearch(query){const q=normalizeArabic(query);if(!q)return;const [students,teachers,subjects]=await Promise.all([dbGetAll('students'),dbGetAll('teachers'),dbGetAll('subjects')]);const scoped=new Set(await getScopedStudentIds());const results=[...students.filter(x=>scoped.has(x.id)&&normalizeArabic(x.fullName+' '+x.admissionNo).includes(q)).slice(0,5).map(x=>({type:'طالب',title:x.fullName,sub:x.admissionNo,route:'students'})),...teachers.filter(x=>normalizeArabic(x.fullName+' '+x.employeeNo).includes(q)).slice(0,4).map(x=>({type:'معلم',title:x.fullName,sub:x.specialty,route:'teachers'})),...subjects.filter(x=>normalizeArabic(x.name+' '+x.code).includes(q)).slice(0,4).map(x=>({type:'مادة',title:x.name,sub:x.code,route:'academics'}))];openModal({title:'نتائج البحث',kicker:`بحث عن: ${query}`,body:results.length?`<div class="activity-list">${results.map((r,i)=>`<button class="activity-item" data-search-result="${i}" style="width:100%;border:0;background:transparent;text-align:start;cursor:pointer"><span class="activity-icon">⌕</span><span class="activity-copy"><strong>${escapeHtml(r.title)}</strong><small>${escapeHtml(r.type)} · ${escapeHtml(r.sub||'')}</small></span><span>←</span></button>`).join('')}</div>`:renderEmpty('لا نتائج','جرّب اسمًا أو رقمًا مختلفًا.'),footer:'<button class="button button--secondary" data-modal-close>إغلاق</button>',onOpen:()=>{$$('[data-search-result]').forEach(b=>b.addEventListener('click',()=>{const r=results[Number(b.dataset.searchResult)];closeModal();navigate(r.route);}));}});}
 
-Object.assign(ROUTE_RENDERERS,{dashboard:renderDashboard,students:renderStudents,guardians:renderGuardians,teachers:renderTeachers,academics:renderAcademics,timetable:renderTimetable,attendance:renderAttendance,grades:renderGrades,certificates:renderCertificates,finance:renderFinance,reports:renderReports,users:renderUsers,settings:renderSettings,notifications:renderNotifications,profile:renderProfile});
+Object.assign(ROUTE_RENDERERS,{dashboard:renderDashboard,students:renderStudents,guardians:renderGuardians,teachers:renderTeachers,academics:renderAcademics,timetable:renderTimetable,attendance:renderAttendance,grades:renderGrades,certificates:renderCertificates,finance:renderFinance,reports:renderReports,users:renderUsers,archive:renderArchive,settings:renderSettings,notifications:renderNotifications,profile:renderProfile});
 
 $('#global-search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();globalSearch(event.currentTarget.value.trim());}});
 
