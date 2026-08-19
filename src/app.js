@@ -1072,7 +1072,7 @@ async function studentContext() {
 async function renderStudents() {
   const context = await studentContext();
   const canManage = state.user.role === 'admin';
-  const action = canManage ? '<button class="button button--primary" id="add-student"><span aria-hidden="true">＋</span>إضافة طالب</button>' : '';
+  const action = canManage ? '<button class="button button--primary" id="add-student"><span aria-hidden="true">＋</span>إضافة طالب</button><button class="button button--secondary" id="import-students"><span aria-hidden="true">⇪</span>استيراد من إكسل</button>' : '';
   $('#view-root').innerHTML = `<div class="page">${renderPageHeader(state.user.role === 'student' ? 'ملفي الدراسي' : state.user.role === 'guardian' ? 'أبنائي' : 'إدارة الطلاب', state.user.role === 'admin' ? 'سجلات الطلاب وتسجيلهم في الفصول وربط أولياء الأمور.' : 'الطلاب المتاحون ضمن نطاق حسابك.', action)}
     <div class="toolbar"><div class="toolbar__group"><label class="search-control"><span>⌕</span><input id="students-search" type="search" placeholder="بحث بالاسم أو رقم القبول"></label><select class="filter-select" id="students-section"><option value="">كل الفصول</option>${context.sections.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select></div><div class="toolbar__group"><span class="metric-chip"><small>عدد السجلات</small><strong id="students-count">${context.students.length}</strong></span></div></div>
     <section class="card data-card"><div class="table-wrap"><table class="data-table"><caption>قائمة الطلاب المتاحة لهذا الحساب</caption><thead><tr><th>الطالب</th><th>رقم القبول</th><th>الفصل</th><th>ولي الأمر</th><th>الهاتف</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="students-tbody"></tbody></table></div><div class="pagination"><p>يتم عرض جميع النتائج المطابقة ضمن نطاق الحساب</p><div class="pagination__buttons"><button class="is-active">1</button></div></div></section>
@@ -1098,6 +1098,7 @@ async function renderStudents() {
   $('#students-search').addEventListener('input', renderRows);
   $('#students-section').addEventListener('change', renderRows);
   $('#add-student')?.addEventListener('click', () => openStudentForm(context));
+  $('#import-students')?.addEventListener('click', () => openStudentsImport(context));
 }
 
 function studentRow(student, context, canManage) {
@@ -1120,6 +1121,82 @@ function openStudentDetails(studentId, context) {
     return guardian ? `<div class="metric-chip"><small>${escapeHtml(link.relation || 'ولي أمر')}</small><strong>${escapeHtml(guardian.fullName)}</strong><small dir="ltr">${escapeHtml(guardian.phone || '')}</small></div>` : '';
   }).join('');
   openModal({ title: student.fullName, kicker: `رقم القبول ${student.admissionNo}`, body: `<div class="grid grid--2"><div class="card"><h3>البيانات الأساسية</h3><p><strong>الفصل:</strong> ${escapeHtml(section?.name || 'غير مسجل')}</p><p><strong>تاريخ الميلاد:</strong> ${formatDate(student.birthDate)}</p><p><strong>الهاتف:</strong> <span dir="ltr">${escapeHtml(student.phone || '—')}</span></p><p><strong>العنوان:</strong> ${escapeHtml(student.address || '—')}</p></div><div class="card"><h3>أولياء الأمور</h3><div class="metric-strip">${guardianHtml || '<p class="muted">لا يوجد ولي أمر مرتبط.</p>'}</div></div></div>`, footer: '<button class="button button--secondary" data-modal-close>إغلاق</button>' });
+}
+
+/** استيراد جماعي للطلاب: يتحقق من الشعبة بالاسم، تفرّد رقم القبول، وسعة كل
+ * شعبة عبر كامل الملف مجتمعًا — لا يسمح بحجز مقاعد أكثر من سعة الشعبة حتى
+ * لو كانت الأسطر المستوردة معًا هي السبب، لا سجل واحد فقط. */
+function openStudentsImport(context) {
+  const sectionByName = new Map(context.sections.filter(s => s.status === 'active').map(s => [normalizeArabic(s.name), s]));
+  const admissionNosSeen = new Set(context.students.map(s => s.admissionNo.toUpperCase()));
+  const seatsUsed = new Map(context.sections.map(s => [s.id, context.enrollments.filter(e => e.status === 'active' && e.sectionId === s.id).length]));
+  const batchAdmissionNos = new Set();
+
+  openExcelImport({
+    title: 'استيراد الطلاب من إكسل', kicker: 'الطلاب',
+    templateName: 'نموذج-استيراد-الطلاب.xlsx',
+    store: 'students',
+    headers: [
+      { key: 'fullName', label: 'الاسم الكامل', example: 'محمد أحمد الشوا' },
+      { key: 'admissionNo', label: 'رقم القبول', example: '2026-001' },
+      { key: 'sectionName', label: 'اسم الشعبة (كما هو في النظام تمامًا)', example: 'السابع أ' },
+      { key: 'gender', label: 'الجنس (ذكر/أنثى)', example: 'ذكر' },
+      { key: 'birthDate', label: 'تاريخ الميلاد (YYYY-MM-DD)', example: '2012-03-15' },
+      { key: 'phone', label: 'الهاتف', example: '0599123456' },
+      { key: 'address', label: 'العنوان', example: 'غزة' },
+    ],
+    parseRow: (row) => {
+      const errors = [];
+      const fullName = String(row['الاسم الكامل'] || '').trim();
+      const admissionNo = String(row['رقم القبول'] || '').trim().toUpperCase();
+      const sectionName = String(row['اسم الشعبة (كما هو في النظام تمامًا)'] || '').trim();
+      const genderRaw = String(row['الجنس (ذكر/أنثى)'] || '').trim();
+      const birthDate = String(row['تاريخ الميلاد (YYYY-MM-DD)'] || '').trim();
+
+      if (!fullName) errors.push('الاسم مطلوب');
+      if (!admissionNo) errors.push('رقم القبول مطلوب');
+      else if (admissionNosSeen.has(admissionNo) || batchAdmissionNos.has(admissionNo)) errors.push('رقم القبول مستخدم بالفعل');
+
+      const section = sectionByName.get(normalizeArabic(sectionName));
+      if (!sectionName) errors.push('اسم الشعبة مطلوب');
+      else if (!section) errors.push('لا توجد شعبة بهذا الاسم');
+
+      const gender = genderRaw === 'أنثى' ? 'female' : genderRaw === 'ذكر' ? 'male' : null;
+      if (!gender) errors.push('الجنس يجب أن يكون "ذكر" أو "أنثى"');
+
+      if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) errors.push('صيغة تاريخ الميلاد غير صحيحة');
+
+      if (section && !errors.length) {
+        const used = seatsUsed.get(section.id) || 0;
+        if (used >= Number(section.capacity || 0)) errors.push(`شعبة ${section.name} مكتملة السعة`);
+        else seatsUsed.set(section.id, used + 1);
+      }
+
+      if (!errors.length) batchAdmissionNos.add(admissionNo);
+
+      return { errors, data: { fullName, admissionNo, sectionId: section?.id, gender, birthDate, phone: String(row['الهاتف'] || '').trim(), address: String(row['العنوان'] || '').trim() } };
+    },
+    customSave: async (data) => {
+      const activeYear = (await dbGetAll('academicYears')).find(y => y.isActive);
+      if (!activeYear) throw new Error('لا توجد سنة دراسية نشطة.');
+      const student = baseRecord(uid('student'), {
+        admissionNo: data.admissionNo, fullName: data.fullName, fullNameNormalized: normalizeArabic(data.fullName),
+        gender: data.gender, birthDate: data.birthDate, phone: data.phone, address: data.address,
+        createdBy: state.user.id, updatedBy: state.user.id,
+      });
+      const enrollment = baseRecord(uid('enrollment'), {
+        studentId: student.id, academicYearId: activeYear.id, sectionId: data.sectionId,
+        enrolledOn: new Date().toISOString().slice(0, 10), rollNo: null,
+        createdBy: state.user.id, updatedBy: state.user.id,
+      });
+      await atomicWrite(['students', 'enrollments'], async stores => {
+        stores.students.put(student);
+        stores.enrollments.put(enrollment);
+      });
+    },
+    auditStore: 'students',
+    onDone: renderStudents,
+  });
 }
 
 function openStudentForm(context, studentId = null) {
@@ -1292,7 +1369,7 @@ async function renderTeachers() {
   const canManage = state.user.role === 'admin';
   const accountProfileIds = new Set(users.filter(user => user.role === 'teacher' && user.profileId).map(user => user.profileId));
   const activeYear = years.find(year => year.isActive);
-  $('#view-root').innerHTML = `<div class="page">${renderPageHeader('المعلمون', canManage ? 'إدارة ملفات المعلمين وتخصصاتهم وتكليفاتهم.' : 'المعلمون المرتبطون بموادك أو فصولك.', canManage ? '<button class="button button--primary" id="add-teacher">＋ إضافة معلم</button>' : '')}
+  $('#view-root').innerHTML = `<div class="page">${renderPageHeader('المعلمون', canManage ? 'إدارة ملفات المعلمين وتخصصاتهم وتكليفاتهم.' : 'المعلمون المرتبطون بموادك أو فصولك.', canManage ? '<button class="button button--primary" id="add-teacher">＋ إضافة معلم</button><button class="button button--secondary" id="import-teachers"><span aria-hidden="true">⇪</span>استيراد من إكسل</button>' : '')}
     <div class="toolbar"><label class="search-control"><span>⌕</span><input id="teachers-search" type="search" placeholder="بحث باسم المعلم أو الرقم الوظيفي"></label><span class="metric-chip"><small>المعلمون الظاهرون</small><strong>${visible.length}</strong></span></div>
     <section class="grid grid--3" id="teachers-grid">${visible.map(teacher => {
       const teacherAssignments = assignments.filter(a => a.teacherId === teacher.id && a.status === 'active');
@@ -1305,12 +1382,52 @@ async function renderTeachers() {
   };
   $('#teachers-search').addEventListener('input', filter);
   $('#add-teacher')?.addEventListener('click', () => openTeacherForm(null));
+  $('#import-teachers')?.addEventListener('click', openTeachersImport);
   $$('[data-edit-teacher]').forEach(button => button.addEventListener('click', () => openTeacherForm(teachers.find(t => t.id === button.dataset.editTeacher))));
   $$('[data-assign-teacher]').forEach(button => button.addEventListener('click', () => openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, assignments, teacherId: button.dataset.assignTeacher, onSaved: renderTeachers })));
   $$('[data-account-teacher]').forEach(button => button.addEventListener('click', () => {
     const teacher = teachers.find(item => item.id === button.dataset.accountTeacher);
     openUserForm({ role: 'teacher', profileId: teacher.id, displayName: teacher.fullName });
   }));
+}
+
+/** استيراد جماعي للمعلمين — جدول واحد فقط، فيستخدم مسار الاستيراد البسيط. */
+function openTeachersImport() {
+  const employeeNosSeen = new Set();
+  openExcelImport({
+    title: 'استيراد المعلمين من إكسل', kicker: 'المعلمون',
+    templateName: 'نموذج-استيراد-المعلمين.xlsx',
+    store: 'teachers',
+    headers: [
+      { key: 'fullName', label: 'الاسم الكامل', example: 'سارة يوسف النجار' },
+      { key: 'employeeNo', label: 'الرقم الوظيفي', example: 'T-1024' },
+      { key: 'specialty', label: 'التخصص', example: 'اللغة العربية' },
+      { key: 'phone', label: 'الهاتف', example: '0599123456' },
+      { key: 'email', label: 'البريد الإلكتروني', example: 'sara@example.com' },
+    ],
+    parseRow: async (row) => {
+      const errors = [];
+      const fullName = String(row['الاسم الكامل'] || '').trim();
+      const employeeNo = String(row['الرقم الوظيفي'] || '').trim().toUpperCase();
+      const specialty = String(row['التخصص'] || '').trim();
+      const email = String(row['البريد الإلكتروني'] || '').trim();
+
+      if (!fullName) errors.push('الاسم مطلوب');
+      if (!employeeNo) errors.push('الرقم الوظيفي مطلوب');
+      else if (employeeNosSeen.has(employeeNo) || (await dbIndexAll('teachers', 'employeeNo', employeeNo))[0]) errors.push('الرقم الوظيفي مستخدم بالفعل');
+      if (!specialty) errors.push('التخصص مطلوب');
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('صيغة البريد غير صحيحة');
+
+      if (!errors.length) employeeNosSeen.add(employeeNo);
+      return { errors, data: { fullName, employeeNo, specialty, phone: String(row['الهاتف'] || '').trim(), email } };
+    },
+    buildRecord: (data) => baseRecord(uid('teacher'), {
+      fullName: data.fullName, fullNameNormalized: normalizeArabic(data.fullName), employeeNo: data.employeeNo,
+      specialty: data.specialty, hiredOn: '', phone: data.phone, email: data.email,
+      createdBy: state.user.id, updatedBy: state.user.id,
+    }),
+    onDone: renderTeachers,
+  });
 }
 
 function openTeacherForm(existing) {
@@ -1670,19 +1787,41 @@ async function renderGrades(){
   $('#assessment-search').addEventListener('input',filter);$('#assessment-status').addEventListener('change',filter);
   $('#add-assessment').addEventListener('click',()=>openAssessmentForm(ctx));
   $$('[data-enter-grades]').forEach(b=>b.addEventListener('click',()=>openGradebook(ctx,b.dataset.enterGrades)));
+  $$('[data-edit-assessment]').forEach(b=>b.addEventListener('click',()=>openAssessmentForm(ctx,ctx.allAssessments.find(a=>a.id===b.dataset.editAssessment))));
   $$('[data-assessment-action]').forEach(b=>b.addEventListener('click',()=>transitionAssessment(ctx,b.dataset.assessmentAction,b.dataset.assessmentId)));
 }
 
-function assessmentCard(a,ctx){const avg=assessmentAverage(a,ctx.entries),count=ctx.entries.filter(e=>e.assessmentId===a.id&&e.entryStatus==='graded').length;let action='';if(a.status==='draft')action=`<button class="button button--primary" data-enter-grades="${a.id}">إدخال الدرجات</button><button class="button button--secondary" data-assessment-action="submit" data-assessment-id="${a.id}">إرسال للمراجعة</button>`;if(a.status==='submitted'&&state.user.role==='admin')action=`<button class="button button--success" data-assessment-action="approve" data-assessment-id="${a.id}">اعتماد</button>`;if(a.status==='approved'&&state.user.role==='admin')action=`<button class="button button--primary" data-assessment-action="publish" data-assessment-id="${a.id}">نشر النتائج</button>`;return`<article class="card" data-assessment-card data-status="${a.status}"><header class="card__header"><div><h3>${escapeHtml(a.name)}</h3><p>${escapeHtml(ctx.subjectMap.get(a.subjectId)?.name||'')} · ${escapeHtml(ctx.sectionMap.get(a.sectionId)?.name||'')}</p></div>${statusBadge(a.status)}</header><div class="metric-strip"><div class="metric-chip"><small>الدرجة القصوى</small><strong>${a.maxScore}</strong></div><div class="metric-chip"><small>المتوسط</small><strong>${avg}%</strong></div><div class="metric-chip"><small>المدخل</small><strong>${count}</strong></div></div><p class="card-meta">التاريخ: ${formatDate(a.date)} · الوزن: ${a.weightBasisPoints/100}%</p><div class="page-actions">${action||'<button class="button button--secondary" data-enter-grades="'+a.id+'">عرض الدرجات</button>'}</div></article>`;}
+function assessmentCard(a,ctx){const avg=assessmentAverage(a,ctx.entries),count=ctx.entries.filter(e=>e.assessmentId===a.id&&e.entryStatus==='graded').length;const ownsIt=state.user.role==='admin'||(state.user.role==='teacher'&&a.teacherId===state.user.profileId);let action='';if(a.status==='draft')action=`<button class="button button--primary" data-enter-grades="${a.id}">إدخال الدرجات</button>${ownsIt?`<button class="button button--secondary" data-edit-assessment="${a.id}">✎ تعديل</button>`:''}<button class="button button--secondary" data-assessment-action="submit" data-assessment-id="${a.id}">إرسال للمراجعة</button>`;if(a.status==='submitted'){const buttons=[];if(state.user.role==='admin')buttons.push(`<button class="button button--success" data-assessment-action="approve" data-assessment-id="${a.id}">اعتماد</button>`);if(ownsIt)buttons.push(`<button class="button button--secondary" data-assessment-action="reject" data-assessment-id="${a.id}">إرجاع لتعديل الدرجات</button>`);action=buttons.join('');}if(a.status==='approved'&&state.user.role==='admin')action=`<button class="button button--primary" data-assessment-action="publish" data-assessment-id="${a.id}">نشر النتائج</button>`;return`<article class="card" data-assessment-card data-status="${a.status}"><header class="card__header"><div><h3>${escapeHtml(a.name)}</h3><p>${escapeHtml(ctx.subjectMap.get(a.subjectId)?.name||'')} · ${escapeHtml(ctx.sectionMap.get(a.sectionId)?.name||'')}</p></div>${statusBadge(a.status)}</header><div class="metric-strip"><div class="metric-chip"><small>الدرجة القصوى</small><strong>${a.maxScore}</strong></div><div class="metric-chip"><small>المتوسط</small><strong>${avg}%</strong></div><div class="metric-chip"><small>المدخل</small><strong>${count}</strong></div></div><p class="card-meta">التاريخ: ${formatDate(a.date)} · الوزن: ${a.weightBasisPoints/100}%</p><div class="page-actions">${action||'<button class="button button--secondary" data-enter-grades="'+a.id+'">عرض الدرجات</button>'}</div></article>`;}
 
-function openAssessmentForm(ctx){
+function openAssessmentForm(ctx,existing=null){
   let availableAssignments=ctx.assignments.filter(a=>a.status==='active');if(state.user.role==='teacher')availableAssignments=availableAssignments.filter(a=>a.teacherId===state.user.profileId);
-  openModal({title:'إنشاء تقييم جديد',kicker:'التقييمات',body:`<form id="assessment-form" class="form-grid"><div class="field field--full"><label>التكليف *</label><select name="assignmentId" required><option value="">اختر المادة والشعبة</option>${availableAssignments.map(a=>`<option value="${a.id}">${escapeHtml(ctx.subjectMap.get(a.subjectId)?.name||'')} — ${escapeHtml(ctx.sectionMap.get(a.sectionId)?.name||'')}</option>`).join('')}</select></div><div class="field"><label>اسم التقييم *</label><input name="name" required placeholder="اختبار الشهر الثاني"></div><div class="field"><label>النوع</label><select name="type"><option value="exam">اختبار</option><option value="assignment">واجب</option><option value="activity">نشاط</option></select></div><div class="field"><label>التاريخ *</label><input name="date" type="date" required value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>الدرجة القصوى *</label><input name="maxScore" type="number" min="1" value="20" required></div><div class="field"><label>الوزن % *</label><input name="weight" type="number" min="0.01" max="100" step="0.01" value="20" required></div><p class="form-message field--full" id="assessment-message"></p></form>`,footer:'<button class="button button--primary" id="save-assessment">إنشاء التقييم</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-assessment').addEventListener('click',async()=>{const form=$('#assessment-form');if(!form.reportValidity())return;const d=Object.fromEntries(new FormData(form)),assignment=availableAssignments.find(a=>a.id===d.assignmentId);if(!assignment){$('#assessment-message').textContent='التكليف المحدد غير موجود أو غير نشط.';return;}const weight=Math.round(Number(d.weight)*100);const used=ctx.allAssessments.filter(a=>a.sectionId===assignment.sectionId&&a.subjectId===assignment.subjectId&&a.termId===assignment.termId&&a.status!=='archived').reduce((s,a)=>s+a.weightBasisPoints,0);if(used+weight>10000){$('#assessment-message').textContent=`مجموع الأوزان سيصبح ${(used+weight)/100}%، والحد 100%.`;return;}const assessment=baseRecord(uid('assessment'),{academicYearId:assignment.academicYearId,termId:assignment.termId,sectionId:assignment.sectionId,subjectId:assignment.subjectId,teacherId:assignment.teacherId,name:d.name.trim(),type:d.type,date:d.date,maxScore:Number(d.maxScore),weightBasisPoints:weight,status:'draft',submittedAt:null,approvedAt:null,publishedAt:null,createdBy:state.user.id,updatedBy:state.user.id});await dbPut('assessments',assessment);await audit('ASSESSMENT_CREATED','assessment',assessment.id,null,{name:assessment.name,assignmentId:assignment.id});closeModal();showToast('تم إنشاء التقييم','يمكنك الآن إدخال درجات الطلاب.','success');renderGrades();});}});
+  const assignmentField = existing
+    ? `<div class="field field--full"><label>المادة والشعبة</label><input value="${escapeHtml(ctx.subjectMap.get(existing.subjectId)?.name||'')} — ${escapeHtml(ctx.sectionMap.get(existing.sectionId)?.name||'')}" disabled></div>`
+    : `<div class="field field--full"><label>التكليف *</label><select name="assignmentId" required><option value="">اختر المادة والشعبة</option>${availableAssignments.map(a=>`<option value="${a.id}">${escapeHtml(ctx.subjectMap.get(a.subjectId)?.name||'')} — ${escapeHtml(ctx.sectionMap.get(a.sectionId)?.name||'')}</option>`).join('')}</select></div>`;
+  openModal({title:existing?'تعديل التقييم':'إنشاء تقييم جديد',kicker:'التقييمات',body:`<form id="assessment-form" class="form-grid">${assignmentField}<div class="field"><label>اسم التقييم *</label><input name="name" required placeholder="اختبار الشهر الثاني" value="${escapeHtml(existing?.name||'')}"></div><div class="field"><label>النوع</label><select name="type"><option value="exam" ${existing?.type==='exam'?'selected':''}>اختبار</option><option value="assignment" ${existing?.type==='assignment'?'selected':''}>واجب</option><option value="activity" ${existing?.type==='activity'?'selected':''}>نشاط</option></select></div><div class="field"><label>التاريخ *</label><input name="date" type="date" required value="${escapeHtml(existing?.date||new Date().toISOString().slice(0,10))}"></div><div class="field"><label>الدرجة القصوى *</label><input name="maxScore" type="number" min="1" value="${existing?.maxScore??20}" required></div><div class="field"><label>الوزن % *</label><input name="weight" type="number" min="0.01" max="100" step="0.01" value="${existing?(existing.weightBasisPoints/100):20}" required></div><p class="form-message field--full" id="assessment-message"></p></form>`,footer:`<button class="button button--primary" id="save-assessment">${existing?'حفظ التعديل':'إنشاء التقييم'}</button><button class="button button--secondary" data-modal-close>إلغاء</button>`,onOpen:()=>{$('#save-assessment').addEventListener('click',async()=>{
+    const form=$('#assessment-form');if(!form.reportValidity())return;const d=Object.fromEntries(new FormData(form));const weight=Math.round(Number(d.weight)*100);
+
+    if(existing){
+      const used=ctx.allAssessments.filter(a=>a.id!==existing.id&&a.sectionId===existing.sectionId&&a.subjectId===existing.subjectId&&a.termId===existing.termId&&a.status!=='archived').reduce((s,a)=>s+a.weightBasisPoints,0);
+      if(used+weight>10000){$('#assessment-message').textContent=`مجموع الأوزان سيصبح ${(used+weight)/100}%، والحد 100%.`;return;}
+      const updated={...existing,name:d.name.trim(),type:d.type,date:d.date,maxScore:Number(d.maxScore),weightBasisPoints:weight,updatedAt:nowIso(),updatedBy:state.user.id};
+      await dbPut('assessments',updated);await audit('ASSESSMENT_UPDATED','assessment',updated.id,null,{name:updated.name});
+      closeModal();showToast('تم الحفظ','حُفظت تعديلات التقييم.','success');renderGrades();
+      return;
+    }
+
+    const assignment=availableAssignments.find(a=>a.id===d.assignmentId);if(!assignment){$('#assessment-message').textContent='التكليف المحدد غير موجود أو غير نشط.';return;}
+    const used=ctx.allAssessments.filter(a=>a.sectionId===assignment.sectionId&&a.subjectId===assignment.subjectId&&a.termId===assignment.termId&&a.status!=='archived').reduce((s,a)=>s+a.weightBasisPoints,0);
+    if(used+weight>10000){$('#assessment-message').textContent=`مجموع الأوزان سيصبح ${(used+weight)/100}%، والحد 100%.`;return;}
+    const assessment=baseRecord(uid('assessment'),{academicYearId:assignment.academicYearId,termId:assignment.termId,sectionId:assignment.sectionId,subjectId:assignment.subjectId,teacherId:assignment.teacherId,name:d.name.trim(),type:d.type,date:d.date,maxScore:Number(d.maxScore),weightBasisPoints:weight,status:'draft',submittedAt:null,approvedAt:null,publishedAt:null,createdBy:state.user.id,updatedBy:state.user.id});
+    await dbPut('assessments',assessment);await audit('ASSESSMENT_CREATED','assessment',assessment.id,null,{name:assessment.name,assignmentId:assignment.id});
+    closeModal();showToast('تم إنشاء التقييم','يمكنك الآن إدخال درجات الطلاب.','success');renderGrades();
+  });}});
 }
 
 function openGradebook(ctx,assessmentId){const a=ctx.allAssessments.find(x=>x.id===assessmentId);const enrollmentRows=ctx.enrollments.filter(e=>e.sectionId===a.sectionId&&e.status==='active');const students=ctx.students.filter(s=>enrollmentRows.some(e=>e.studentId===s.id)&&s.status==='active');const entries=ctx.entries.filter(e=>e.assessmentId===a.id);const editable=a.status==='draft'&&(['admin','teacher'].includes(state.user.role));openModal({title:a.name,kicker:`${ctx.subjectMap.get(a.subjectId)?.name||''} · ${ctx.sectionMap.get(a.sectionId)?.name||''}`,size:'850px',body:`<div class="table-wrap"><table class="data-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الدرجة / ${a.maxScore}</th><th>ملاحظة</th></tr></thead><tbody id="gradebook-body">${students.map(student=>{const e=entries.find(x=>x.studentId===student.id);return`<tr data-grade-student="${student.id}"><td data-label="الطالب">${escapeHtml(student.fullName)}</td><td data-label="الحالة"><select class="filter-select grade-status" ${editable?'':'disabled'}><option value="graded" ${(!e||e.entryStatus==='graded')?'selected':''}>مرصودة</option><option value="absent" ${e?.entryStatus==='absent'?'selected':''}>غائب</option><option value="excused" ${e?.entryStatus==='excused'?'selected':''}>معفى</option><option value="missing" ${e?.entryStatus==='missing'?'selected':''}>ناقصة</option></select></td><td data-label="الدرجة"><input class="grade-score" type="number" min="0" max="${a.maxScore}" step="0.5" value="${e?.score??''}" ${editable?'':'disabled'} style="width:90px"></td><td data-label="ملاحظة"><input class="grade-note" value="${escapeHtml(e?.note||'')}" ${editable?'':'disabled'}></td></tr>`}).join('')}</tbody></table></div><p class="form-message" id="gradebook-message"></p>`,footer:`${editable?'<button class="button button--primary" id="save-gradebook">حفظ الدرجات</button>':''}<button class="button button--secondary" data-modal-close>إغلاق</button>`,onOpen:()=>{$('#save-gradebook')?.addEventListener('click',async()=>{const rows=$$('[data-grade-student]');const values=rows.map(row=>({studentId:row.dataset.gradeStudent,entryStatus:$('.grade-status',row).value,score:$('.grade-score',row).value===''?null:Number($('.grade-score',row).value),note:$('.grade-note',row).value.trim()}));const invalid=values.find(v=>v.entryStatus==='graded'&&(v.score===null||v.score<0||v.score>a.maxScore));if(invalid){$('#gradebook-message').textContent=`كل درجة مرصودة يجب أن تكون بين 0 و${a.maxScore}.`;return;}await atomicWrite(['gradeEntries','auditLogs'],async stores=>{for(const v of values){const old=entries.find(e=>e.studentId===v.studentId);stores.gradeEntries.put(old?{...old,...v,updatedAt:nowIso(),updatedBy:state.user.id}:baseRecord(uid('grade'),{assessmentId:a.id,...v,createdBy:state.user.id,updatedBy:state.user.id}));}stores.auditLogs.put(auditRecord('GRADES_SAVED','assessment',a.id,null,{count:values.length}));});closeModal();showToast('تم حفظ الدرجات',`حُفظت درجات ${values.length} طالبًا.`,'success');renderGrades();});}});}
 
-async function transitionAssessment(ctx,action,id){const a=ctx.allAssessments.find(x=>x.id===id);const map={submit:{from:'draft',to:'submitted'},approve:{from:'submitted',to:'approved'},publish:{from:'approved',to:'published'}},rule=map[action];if(!rule||a.status!==rule.from){showToast('تعذر الانتقال','حالة التقييم الحالية لا تسمح بهذا الإجراء.','error');return;}if(['approve','publish'].includes(action)&&state.user.role!=='admin'){showToast('غير مصرح','هذا الإجراء للمدير فقط.','error');return;}const entries=(await dbIndexAll('gradeEntries','assessmentId',a.id));if(action==='submit'){const enrolledIds=ctx.enrollments.filter(enrollment=>enrollment.sectionId===a.sectionId&&enrollment.status==='active').map(enrollment=>enrollment.studentId);const complete=enrolledIds.every(studentId=>entries.some(entry=>entry.studentId===studentId&&['graded','absent','excused','missing'].includes(entry.entryStatus)));if(!enrolledIds.length||!complete){showToast('الدرجات ناقصة','يجب حفظ حالة كل طالب في الشعبة قبل الإرسال للمراجعة.','error');return;}}a.status=rule.to;a.updatedAt=nowIso();a.updatedBy=state.user.id;if(action==='submit')a.submittedAt=nowIso();if(action==='approve')a.approvedAt=nowIso();if(action==='publish')a.publishedAt=nowIso();await dbPut('assessments',a);await audit(`ASSESSMENT_${rule.to.toUpperCase()}`,'assessment',a.id,{status:rule.from},{status:rule.to});showToast('تم تحديث الحالة',`أصبح التقييم: ${statusLabel(rule.to)}.`,'success');renderGrades();}
+async function transitionAssessment(ctx,action,id){const a=ctx.allAssessments.find(x=>x.id===id);const map={submit:{from:'draft',to:'submitted'},approve:{from:'submitted',to:'approved'},publish:{from:'approved',to:'published'},reject:{from:'submitted',to:'draft'}},rule=map[action];if(!rule||a.status!==rule.from){showToast('تعذر الانتقال','حالة التقييم الحالية لا تسمح بهذا الإجراء.','error');return;}if(['approve','publish'].includes(action)&&state.user.role!=='admin'){showToast('غير مصرح','هذا الإجراء للمدير فقط.','error');return;}if(action==='reject'&&!(state.user.role==='admin'||(state.user.role==='teacher'&&a.teacherId===state.user.profileId))){showToast('غير مصرح','فقط المدير أو معلم المادة يمكنه إرجاع التقييم.','error');return;}const entries=(await dbIndexAll('gradeEntries','assessmentId',a.id));if(action==='submit'){const enrolledIds=ctx.enrollments.filter(enrollment=>enrollment.sectionId===a.sectionId&&enrollment.status==='active').map(enrollment=>enrollment.studentId);const complete=enrolledIds.every(studentId=>entries.some(entry=>entry.studentId===studentId&&['graded','absent','excused','missing'].includes(entry.entryStatus)));if(!enrolledIds.length||!complete){showToast('الدرجات ناقصة','يجب حفظ حالة كل طالب في الشعبة قبل الإرسال للمراجعة.','error');return;}}a.status=rule.to;a.updatedAt=nowIso();a.updatedBy=state.user.id;if(action==='submit')a.submittedAt=nowIso();if(action==='approve')a.approvedAt=nowIso();if(action==='publish')a.publishedAt=nowIso();if(action==='reject')a.submittedAt=null;await dbPut('assessments',a);await audit(`ASSESSMENT_${rule.to.toUpperCase()}`,'assessment',a.id,{status:rule.from},{status:rule.to});showToast('تم تحديث الحالة',action==='reject'?'أُعيد التقييم إلى مسودة قابلة للتعديل.':`أصبح التقييم: ${statusLabel(rule.to)}.`,'success');renderGrades();}
 
 async function renderGradesReadOnly(ctx){const rows=[];for(const entry of ctx.entries.filter(e=>ctx.scopedIds.has(e.studentId))){const assessment=ctx.assessments.find(a=>a.id===entry.assessmentId);if(!assessment||assessment.status!=='published')continue;rows.push({entry,assessment,student:ctx.studentMap.get(entry.studentId)});}const graded=rows.filter(r=>r.entry.entryStatus==='graded');const avg=graded.length?Math.round(graded.reduce((s,r)=>s+r.entry.score/r.assessment.maxScore*100,0)/graded.length):0;const isPassing=row=>row.entry.entryStatus==='graded'&&row.entry.score/row.assessment.maxScore*100>=(ctx.subjectMap.get(row.assessment.subjectId)?.passScore??50);$('#view-root').innerHTML=`<div class="page">${renderPageHeader('النتائج الدراسية','الدرجات المنشورة فقط للطلاب ضمن حسابك.')}
   <section class="grid grid--3" style="margin-bottom:16px"><article class="card stat-card green"><span class="stat-icon">◇</span><div class="stat-copy"><small>متوسط النتائج</small><strong>${avg}%</strong></div></article><article class="card stat-card"><span class="stat-icon">▤</span><div class="stat-copy"><small>التقييمات المنشورة</small><strong>${rows.length}</strong></div></article><article class="card stat-card amber"><span class="stat-icon">✓</span><div class="stat-copy"><small>الناجحة</small><strong>${rows.filter(isPassing).length}</strong></div></article></section>
@@ -1749,6 +1888,145 @@ async function renderReports(){const data=await dashboardData();const sectionMap
   <section class="grid grid--dashboard"><article class="card span-7"><header class="card__header"><div><h3>الحضور حسب الشعبة</h3><p>النسبة تشمل حاضر ومتأخر ضمن الجلسات المسجلة</p></div></header><div class="bar-list">${sectionAttendance.map(s=>`<div class="bar-row"><span>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill ${s.value>=90?'green':s.value<75?'red':''}" style="width:${s.value}%"></div></div><strong>${s.value}%</strong></div>`).join('')}</div></article><article class="card span-5"><header class="card__header"><div><h3>ملخص المؤشرات</h3><p>القيم الداخلة في التحليل</p></div></header><div class="metric-strip" style="flex-wrap:wrap"><div class="metric-chip"><small>الطلاب</small><strong>${data.students.length}</strong></div><div class="metric-chip"><small>الحضور</small><strong>${data.attendanceRate}%</strong></div><div class="metric-chip"><small>الأداء</small><strong>${data.gradeAverage}%</strong></div>${schoolAllows('finance')?`<div class="metric-chip"><small>المتأخرات</small><strong>${formatMoney(data.outstanding)}</strong></div>`:''}</div></article><article class="card span-12"><header class="card__header"><div><h3>اقتراحات المتابعة الذكية</h3><p>قواعد محلية مفسرة — لا تغيّر أي سجل تلقائيًا</p></div></header><div class="grid grid--3">${alerts.map(a=>`<div class="alert-card is-${a.type}"><span class="alert-card__icon">${a.type==='success'?'✓':'!'}</span><div class="alert-card__copy"><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body)}</p><button data-alert-route="${a.route}">${escapeHtml(a.action)} ←</button></div></div>`).join('')}</div></article></section></div>`;$$('[data-alert-route]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.alertRoute)));$('#export-report').addEventListener('click',()=>downloadCsv('school-report.csv',[['المؤشر','القيمة'],['الطلاب',data.students.length],['الحضور',`${data.attendanceRate}%`],['متوسط الأداء',`${data.gradeAverage}%`],...(schoolAllows('finance')?[['الرصيد',data.outstanding/100]]:[]),...sectionAttendance.map(s=>[`حضور ${s.name}`,`${s.value}%`])]));}
 
 function downloadCsv(filename,rows){const csv='\uFEFF'+rows.map(row=>row.map(value=>`"${String(value??'').replaceAll('"','""')}"`).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+
+/* ==================== الاستيراد من إكسل ==================== */
+
+/** يُحمَّل مرة واحدة فقط، وعند أول استخدام فعلي لميزة الاستيراد لا عند فتح الصفحة. */
+function loadXlsxLibrary() {
+  if (window.XLSX) return Promise.resolve();
+  if (loadXlsxLibrary._promise) return loadXlsxLibrary._promise;
+  loadXlsxLibrary._promise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/xlsx.min.js';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('تعذّر تحميل مكتبة إكسل. تحقق من الاتصال وحاول مجددًا.'));
+    document.head.appendChild(script);
+  });
+  return loadXlsxLibrary._promise;
+}
+
+function downloadExcelTemplate(filename, headers, exampleRow) {
+  const sheet = window.XLSX.utils.aoa_to_sheet([headers, exampleRow]);
+  sheet['!cols'] = headers.map(() => ({ wch: 18 }));
+  const book = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(book, sheet, 'البيانات');
+  const bytes = window.XLSX.write(book, { type: 'array', bookType: 'xlsx' });
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function readExcelRows(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('تعذّرت قراءة الملف.'));
+    reader.onload = () => {
+      try {
+        const book = window.XLSX.read(new Uint8Array(reader.result), { type: 'array' });
+        const sheet = book.Sheets[book.SheetNames[0]];
+        resolve(window.XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+      } catch (error) {
+        reject(new Error('الملف ليس بصيغة إكسل صحيحة.'));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * محرّك استيراد عام قابل لإعادة الاستخدام لأي جدول: يعرض زر تنزيل نموذج،
+ * ثم بعد اختيار ملف يفحص كل صف (تحقق + بحث عن مراجع مثل الشعبة بالاسم)
+ * ويعرض معاينة بالأخطاء قبل أي كتابة فعلية في القاعدة — لا يُحفظ صف واحد
+ * قبل موافقة المستخدم على المعاينة الكاملة.
+ *
+ * config:
+ *   title, kicker           عناوين النافذة
+ *   templateName            اسم ملف النموذج عند التنزيل
+ *   headers                 [{key, label, example}]  أعمدة النموذج بالترتيب
+ *   parseRow(row)            يُحوّل صف الإكسل الخام إلى {errors:[], data:{}}
+ *   buildRecord(data)        يبني السجل النهائي الجاهز لـ dbPut من data المتحقَّق منها
+ *   store                   اسم الجدول في dbPut
+ *   onDone                  يُستدعى بعد نجاح الاستيراد (لإعادة رسم الصفحة)
+ */
+function openExcelImport(config) {
+  openModal({
+    title: config.title, kicker: config.kicker, size: '760px',
+    body: `
+      <div class="import-step" id="import-step-start">
+        <p>حمّل النموذج، عبّئه بنفس ترتيب الأعمدة، ثم ارفعه هنا. الصف الأول
+        (العناوين) لا يُلمس، والصف الثاني مثال — احذفه أو استبدله ببياناتك.</p>
+        <div class="page-actions" style="margin:14px 0">
+          <button class="button button--secondary" id="download-template">⬇ تنزيل النموذج</button>
+        </div>
+        <label class="button button--primary" style="cursor:pointer;display:inline-block" for="import-file">اختيار ملف إكسل</label>
+        <input id="import-file" type="file" accept=".xlsx,.xls" hidden>
+        <p class="form-message" id="import-start-message"></p>
+      </div>
+      <div class="import-step" id="import-step-preview" hidden>
+        <div id="import-summary" style="margin-bottom:10px;font-size:14px"></div>
+        <div class="table-wrap" style="max-height:360px;overflow:auto"><table class="data-table"><thead id="import-preview-head"></thead><tbody id="import-preview-body"></tbody></table></div>
+        <p class="form-message" id="import-save-message"></p>
+      </div>
+    `,
+    footer: `<button class="button button--secondary" data-modal-close>إغلاق</button><button class="button button--primary" id="import-confirm" hidden>تأكيد الاستيراد</button>`,
+    onOpen: () => {
+      let validRows = [];
+
+      $('#download-template').addEventListener('click', () => {
+        downloadExcelTemplate(config.templateName, config.headers.map(h => h.label), config.headers.map(h => h.example));
+      });
+
+      $('#import-file').addEventListener('change', async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const startMessage = $('#import-start-message');
+        startMessage.textContent = 'جارٍ التحميل والفحص...';
+        try {
+          await loadXlsxLibrary();
+          const rawRows = await readExcelRows(file);
+          if (!rawRows.length) { startMessage.textContent = 'الملف لا يحتوي بيانات بعد الصف الأول.'; return; }
+
+          const results = await Promise.all(rawRows.map(row => config.parseRow(row)));
+          validRows = results.filter(r => !r.errors.length).map(r => r.data);
+          const errorCount = results.length - validRows.length;
+
+          $('#import-summary').innerHTML = `تم فحص <strong>${results.length}</strong> صفًا — `
+            + `<span style="color:var(--green-700)">${validRows.length} صالح</span>`
+            + (errorCount ? ` · <span style="color:var(--red-600)">${errorCount} به خطأ (لن يُستورد)</span>` : '');
+
+          const headHtml = `<tr>${config.headers.map(h => `<th>${escapeHtml(h.label)}</th>`).join('')}<th>الحالة</th></tr>`;
+          $('#import-preview-head').innerHTML = headHtml;
+          $('#import-preview-body').innerHTML = results.map((r, i) => `<tr style="${r.errors.length ? 'background:#fef3f2' : ''}">${config.headers.map(h => `<td>${escapeHtml(String(rawRows[i][h.label] ?? ''))}</td>`).join('')}<td>${r.errors.length ? `<span style="color:var(--red-600)">${escapeHtml(r.errors.join('، '))}</span>` : '<span style="color:var(--green-700)">✓ جاهز</span>'}</td></tr>`).join('');
+
+          $('#import-step-start').hidden = true;
+          $('#import-step-preview').hidden = false;
+          $('#import-confirm').hidden = validRows.length === 0;
+        } catch (error) {
+          startMessage.textContent = error.message || 'تعذّر فحص الملف.';
+        }
+      });
+
+      $('#import-confirm').addEventListener('click', async () => {
+        const saveMessage = $('#import-save-message');
+        saveMessage.textContent = 'جارٍ الحفظ...';
+        let saved = 0;
+        for (const data of validRows) {
+          if (config.customSave) {
+            await config.customSave(data);
+          } else {
+            await dbPut(config.store, config.buildRecord(data));
+          }
+          saved += 1;
+        }
+        await audit('BULK_IMPORTED', config.store || config.auditStore, null, null, { count: saved });
+        closeModal();
+        showToast('تم الاستيراد', `أُضيف ${saved} سجلًا بنجاح.`, 'success');
+        config.onDone?.();
+      });
+    },
+  });
+}
 
 async function renderUsers(){
   const users=await dbGetAll('users');
