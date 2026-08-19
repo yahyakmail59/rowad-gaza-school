@@ -18,6 +18,7 @@ const SHELL = [
   './assets/fonts/amiri/amiri-ar-400.woff2',
   './assets/fonts/amiri/amiri-ar-700.woff2',
   './assets/images/ruwad-gaza-school-logo.jpg',
+  './vendor/xlsx.min.js',
 ];
 
 self.addEventListener('install', (e) => {
