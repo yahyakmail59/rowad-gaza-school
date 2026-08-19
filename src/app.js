@@ -5,9 +5,16 @@ const DEMO_PASSWORD = 'Salam@123';
 const SCHOOL_NAME = 'مدرسة رواد غزة الثانوية';
 const SCHOOL_SHORT_NAME = 'رواد غزة الثانوية';
 const SCHOOL_LOGO = 'assets/images/ruwad-gaza-school-logo.jpg';
+// باقتان: 'basic' (طلاب وحضور ودرجات) و 'full' (+ الرسوم وحسابات أولياء الأمور).
+// المدرسة تُنشأ افتراضيًا بالباقة الكاملة؛ تنزيلها إلى الأساسية قرار تجاري
+// يُتخذ عند البيع، لا افتراض تقني.
+const SCHOOL_PLAN_FULL = 'full';
+const SCHOOL_PLAN_BASIC = 'basic';
+
 const DEFAULT_SCHOOL_PROFILE = Object.freeze({
   name: SCHOOL_NAME,
   shortName: SCHOOL_SHORT_NAME,
+  plan: SCHOOL_PLAN_FULL,
   logoPath: SCHOOL_LOGO,
   logoDataUrl: '',
   phone: '02-0000000',
@@ -105,7 +112,14 @@ function normalizeSchoolProfile(value = {}) {
     shortName: String(value.shortName || value.name || SCHOOL_SHORT_NAME).trim(),
     logoDataUrl: String(value.logoDataUrl || ''),
     certificatePrefix: String(value.certificatePrefix || DEFAULT_SCHOOL_PROFILE.certificatePrefix).trim().toUpperCase(),
+    plan: value.plan === SCHOOL_PLAN_BASIC ? SCHOOL_PLAN_BASIC : SCHOOL_PLAN_FULL,
   };
+}
+
+/** الرسوم وحسابات أولياء الأمور جزء من الباقة الكاملة فقط. */
+function schoolAllows(feature) {
+  if (state.schoolProfile.plan === SCHOOL_PLAN_FULL) return true;
+  return !{ finance: true, guardianAccounts: true }[feature];
 }
 
 function getSchoolLogo(profile = state.schoolProfile) {
@@ -522,7 +536,9 @@ async function signOut(reason = 'manual') {
 }
 
 function canAccessRoute(route) {
-  return !!state.user && (ROUTE_META[route]?.roles || []).includes(state.user.role);
+  if (!state.user || !(ROUTE_META[route]?.roles || []).includes(state.user.role)) return false;
+  if (route === 'finance') return schoolAllows('finance');
+  return true;
 }
 
 async function getScopedStudentIds(user = state.user) {
@@ -589,7 +605,8 @@ function setAvatarElement(element, user) {
 async function buildNavigation() {
   const nav = $('#main-nav');
   nav.innerHTML = NAVIGATION.map(group => {
-    const visible = group.items.filter(item => item.roles.includes(state.user.role));
+    const visible = group.items.filter(item => item.roles.includes(state.user.role)
+      && (item.route !== 'finance' || schoolAllows('finance')));
     if (!visible.length) return '';
     return `<p class="nav-section-label">${escapeHtml(group.section)}</p>${visible.map(item => `<button class="nav-item${state.route === item.route ? ' is-active' : ''}" type="button" data-route="${item.route}"><span class="nav-icon" aria-hidden="true">${item.icon}</span><span>${escapeHtml(item.label)}</span></button>`).join('')}`;
   }).join('');
@@ -696,7 +713,15 @@ async function setupGlobalEvents() {
     input.type = input.type === 'password' ? 'text' : 'password';
     $('#toggle-password').setAttribute('aria-label', input.type === 'password' ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور');
   });
-  $('#show-demo').addEventListener('click', () => { $('#demo-accounts').hidden = !$('#demo-accounts').hidden; });
+  // زر حسابات التجربة يظهر في وضع العرض وحده. في التركيب الحقيقي لا وجود له.
+  const demoMode = isDemoMode();
+  const demoToggle = $('#show-demo');
+  if (!demoMode) {
+    demoToggle?.remove();
+    $('#demo-accounts')?.remove();
+  } else {
+    demoToggle.addEventListener('click', () => { $('#demo-accounts').hidden = !$('#demo-accounts').hidden; });
+  }
   $$('#demo-accounts [data-demo-user]').forEach(button => button.addEventListener('click', () => {
     $('#username').value = button.dataset.demoUser;
     $('#password').value = DEMO_PASSWORD;
@@ -761,11 +786,95 @@ function toggleUserPopover(anchor) {
 
 const ROUTE_RENDERERS = {};
 
+
+/* ==================== التركيب الأول ==================== */
+
+/** يظهر مرة واحدة على جهاز فارغ: اسم المدرسة وحساب المدير. */
+function showFirstRun() {
+  $('#auth-screen').hidden = false;
+  $('#app-shell').hidden = true;
+  const host = document.querySelector('.auth-form') || document.querySelector('.auth-screen');
+  host.innerHTML = `
+    <form id="first-run" class="auth-card" autocomplete="off">
+      <h1>تجهيز النظام</h1>
+      <p>هذه أول مرة يُفتح فيها النظام على هذا الجهاز. أنشئ حساب المدير.</p>
+      <div class="field"><label>اسم المدرسة</label>
+        <input name="schoolName" required maxlength="80" placeholder="مدرسة ..."></div>
+      <div class="field"><label>الباقة</label>
+        <select name="plan">
+          <option value="full">الإدارة الكاملة — الرسوم وحسابات أولياء الأمور</option>
+          <option value="basic">الأساسية — الطلاب والحضور والدرجات فقط</option>
+        </select></div>
+      <div class="field"><label>اسم الدخول</label>
+        <input name="username" required dir="ltr" pattern="[A-Za-z0-9._-]{3,40}" placeholder="admin"></div>
+      <div class="field"><label>كلمة المرور</label>
+        <input name="password" type="password" required minlength="8" autocomplete="new-password"></div>
+      <div class="field"><label>تأكيد كلمة المرور</label>
+        <input name="confirm" type="password" required minlength="8" autocomplete="new-password"></div>
+      <p class="form-message" id="first-run-error"></p>
+      <button class="button button--primary" type="submit">إنشاء الحساب وبدء الاستخدام</button>
+      <p style="margin-top:14px;font-size:13px;opacity:.75">
+        البيانات تُحفظ على هذا المتصفح وحده. احتفظ بنسخة احتياطية دوريًا من الإعدادات.
+      </p>
+    </form>`;
+
+  $('#first-run').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const error = $('#first-run-error');
+    error.textContent = '';
+    if (data.password !== data.confirm) { error.textContent = 'كلمتا المرور غير متطابقتين.'; return; }
+    try {
+      const username = await validateNewAccountCredentials(data.username, data.password);
+      const derived = await derivePassword(data.password);
+      const name = String(data.schoolName).trim();
+      const admin = baseRecord(uid('user'), {
+        username, passwordHash: derived.hash, passwordSalt: derived.salt,
+        passwordIterations: derived.iterations, role: 'admin', profileId: null,
+        displayName: `مدير ${name}`, lastLoginAt: null, failedAttempts: 0, lockedUntil: null,
+      });
+      await dbPut('users', admin);
+      await dbPut('settings', {
+        id: 'setting-school', key: 'schoolProfile',
+        value: normalizeSchoolProfile({ name, shortName: name, address: '', plan: data.plan }),
+        updatedAt: nowIso(), updatedBy: admin.id,
+      });
+      // يمنع ensureBrandIdentity من الكتابة فوق الاسم الذي اختاره المستخدم.
+      await dbPut('settings', { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: admin.id });
+      await dbPut('auditLogs', auditRecord('SYSTEM_INITIALISED', 'user', admin.id, null, { username }));
+      location.replace(location.pathname);
+    } catch (problem) {
+      error.textContent = problem.message;
+    }
+  });
+}
+
+/**
+ * وضع العرض: نسخة مليئة ببيانات تجريبية للبيع.
+ * يُفعَّل بالنطاق (demo-school.athar-media.com) أو بـ ?demo=1 محليًا.
+ * نسخة واحدة منشورة تخدم الحالتين — لا نسختان من الكود أبدًا.
+ */
+function isDemoMode() {
+  if (new URLSearchParams(location.search).has('demo')) return true;
+  return location.hostname.split('.')[0].startsWith('demo');
+}
+
 async function bootstrap() {
   $('#app-version').textContent = APP_VERSION;
   try {
     await openDatabase();
-    await ensureSeedData();
+
+    // وضع العرض: بيانات وحسابات تجريبية. يُطلب صراحةً بـ ?demo=1
+    // ولا يعمل أبدًا في التركيب الحقيقي.
+    if (isDemoMode()) await ensureSeedData();
+
+    const users = await dbGetAll('users');
+    if (!users.length) {
+      await setupGlobalEvents();
+      showFirstRun();
+      return;
+    }
+
     await ensureBrandIdentity();
     await loadSchoolProfile();
     await setupGlobalEvents();
@@ -1430,6 +1539,9 @@ async function validateNewAccountCredentials(username, password) {
 }
 
 async function createLinkedUser({ role, profileId = null, displayName, username, password }) {
+  if (role === 'guardian' && !schoolAllows('guardianAccounts')) {
+    throw new Error('حسابات أولياء الأمور جزء من الباقة الكاملة. رقّ الباقة من الإعدادات لتفعيلها.');
+  }
   const cleanUsername = await validateNewAccountCredentials(username, password);
   if (role !== 'admin' && !profileId) throw new Error('يجب اختيار الملف المرتبط لهذا الدور.');
   if (profileId && (await dbIndexAll('users','profileId',profileId))[0]) throw new Error('الملف المحدد مرتبط بحساب آخر بالفعل.');
@@ -1478,6 +1590,7 @@ async function renderSettings(){const school=normalizeSchoolProfile((await getSe
     <div class="field field--full"><div class="school-brand-editor"><img id="school-logo-preview" class="school-logo-preview" src="${escapeHtml(getSchoolLogo(school))}" alt="معاينة شعار ${escapeHtml(school.name)}"><div class="school-brand-actions"><strong>شعار المدرسة</strong><small>JPG أو PNG أو WebP، بحد أقصى 3 ميجابايت. يُحفظ محليًا داخل المتصفح.</small><div class="page-actions"><label class="button button--secondary" for="school-logo-input" style="cursor:pointer">اختيار شعار<input id="school-logo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><button class="button button--ghost" id="reset-school-logo" type="button">استخدام الشعار الافتراضي</button></div></div></div></div>
     <div class="field field--full"><label for="school-name">الاسم الرسمي للمدرسة *</label><input id="school-name" name="name" required maxlength="120" value="${escapeHtml(school.name)}"></div>
     <div class="field"><label for="school-short-name">الاسم المختصر *</label><input id="school-short-name" name="shortName" required maxlength="60" value="${escapeHtml(school.shortName)}"><small>يظهر في القائمة الجانبية عند ضيق المساحة.</small></div>
+    <div class="field"><label for="school-plan">الباقة</label><select id="school-plan" name="plan"><option value="full" ${school.plan==='full'?'selected':''}>الإدارة الكاملة — الرسوم وحسابات أولياء الأمور</option><option value="basic" ${school.plan==='basic'?'selected':''}>الأساسية — الطلاب والحضور والدرجات فقط</option></select><small>تغييرها فوري ولا يحتاج إعادة تركيب.</small></div>
     <div class="field"><label for="school-principal">اسم المدير/ة</label><input id="school-principal" name="principalName" maxlength="100" value="${escapeHtml(school.principalName)}"></div>
     <div class="field"><label for="certificate-prefix">بادئة أرقام الشهادات *</label><input id="certificate-prefix" name="certificatePrefix" required pattern="[A-Za-z0-9-]{2,12}" maxlength="12" dir="ltr" value="${escapeHtml(school.certificatePrefix)}"><small>أحرف إنجليزية أو أرقام، مثل RGS.</small></div>
     <div class="field"><label for="school-phone">الهاتف</label><input id="school-phone" name="phone" inputmode="tel" maxlength="30" value="${escapeHtml(school.phone)}"></div>
