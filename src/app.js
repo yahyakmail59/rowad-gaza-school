@@ -1344,19 +1344,35 @@ async function renderAcademics() {
     <section class="card" style="margin-bottom:16px"><div class="metric-strip"><div class="metric-chip"><small>السنة النشطة</small><strong>${escapeHtml(activeYear?.name || '—')}</strong></div><div class="metric-chip"><small>الصفوف</small><strong>${grades.filter(g=>g.status==='active').length}</strong></div><div class="metric-chip"><small>الشعب</small><strong>${sections.filter(s=>s.status==='active').length}</strong></div><div class="metric-chip"><small>المواد</small><strong>${subjects.filter(s=>s.status==='active').length}</strong></div><div class="metric-chip"><small>التكليفات</small><strong>${visibleAssignments.filter(a=>a.status==='active').length}</strong></div></div></section>
     ${state.user.role === 'admin' ? `<section class="card" style="margin-bottom:16px"><header class="card__header"><div><h3>السنوات الدراسية والصفوف</h3><p>الخطوة الأولى قبل أي شعبة أو طالب أو معلم — بلا سنة نشطة لا يمكن المتابعة.</p></div><div style="display:flex;gap:8px"><button class="button button--secondary" id="add-year">＋ سنة دراسية</button><button class="button button--secondary" id="add-grade">＋ صف دراسي</button></div></header>
       <div class="grid grid--2">
-        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">السنوات</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>السنة</th><th>البداية</th><th>النهاية</th><th>الحالة</th><th></th></tr></thead><tbody>${years.filter(y=>y.status==='active').map(y=>`<tr><td data-label="السنة">${escapeHtml(y.name)}</td><td data-label="البداية">${formatDate(y.startsOn)}</td><td data-label="النهاية">${formatDate(y.endsOn)}</td><td data-label="الحالة">${y.isActive?'<span class="status status--success">نشطة</span>':'<span class="status">غير نشطة</span>'}</td><td data-label="">${y.isActive?'':`<button class="button button--secondary" data-activate-year="${y.id}">تفعيل</button>`}</td></tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد سنوات بعد','أضف السنة الدراسية الأولى.')}</td></tr>`}</tbody></table></div></div>
-        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">الصفوف</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>الصف</th><th>الرمز</th><th>المرحلة</th></tr></thead><tbody>${grades.filter(g=>g.status==='active').map(g=>`<tr><td data-label="الصف">${escapeHtml(g.name)}</td><td data-label="الرمز" dir="ltr">${escapeHtml(g.code)}</td><td data-label="المرحلة">${escapeHtml(g.stage||'—')}</td></tr>`).join('') || `<tr><td colspan="3">${renderEmpty('لا توجد صفوف بعد','أضف الصف الأول.')}</td></tr>`}</tbody></table></div></div>
+        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">السنوات</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>السنة</th><th>البداية</th><th>النهاية</th><th>الحالة</th><th></th></tr></thead><tbody>${years.filter(y=>y.status==='active').map(y=>`<tr><td data-label="السنة">${escapeHtml(y.name)}</td><td data-label="البداية">${formatDate(y.startsOn)}</td><td data-label="النهاية">${formatDate(y.endsOn)}</td><td data-label="الحالة">${y.isActive?'<span class="status status--success">نشطة</span>':'<span class="status">غير نشطة</span>'}</td><td data-label=""><div class="table-actions">${y.isActive?'':`<button class="button button--secondary" data-activate-year="${y.id}">تفعيل</button>`}<button class="icon-button" type="button" data-edit-year="${y.id}" aria-label="تعديل ${escapeHtml(y.name)}">✎</button></div></td></tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد سنوات بعد','أضف السنة الدراسية الأولى.')}</td></tr>`}</tbody></table></div></div>
+        <div><h4 style="margin:0 0 8px;font-size:14px;color:var(--muted)">الصفوف</h4><div class="table-wrap"><table class="data-table"><thead><tr><th>الصف</th><th>الرمز</th><th>المرحلة</th><th></th></tr></thead><tbody>${grades.filter(g=>g.status==='active').map(g=>`<tr><td data-label="الصف">${escapeHtml(g.name)}</td><td data-label="الرمز" dir="ltr">${escapeHtml(g.code)}</td><td data-label="المرحلة">${escapeHtml(g.stage||'—')}</td><td data-label=""><div class="table-actions"><button class="icon-button" type="button" data-edit-grade="${g.id}" aria-label="تعديل ${escapeHtml(g.name)}">✎</button><button class="icon-button" type="button" data-archive-grade="${g.id}" aria-label="أرشفة ${escapeHtml(g.name)}">🗄</button></div></td></tr>`).join('') || `<tr><td colspan="4">${renderEmpty('لا توجد صفوف بعد','أضف الصف الأول.')}</td></tr>`}</tbody></table></div></div>
       </div></section>` : ''}
-    <section class="grid grid--2"><article class="card"><header class="card__header"><div><h3>الشعب الدراسية</h3><p>السعة والمربي والغرفة</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>الشعبة</th><th>الصف</th><th>السعة</th><th>المربي</th></tr></thead><tbody>${sections.filter(s=>s.status==='active').map(s=>`<tr><td data-label="الشعبة"><strong>${escapeHtml(s.name)}</strong><small style="display:block;color:var(--muted)">${escapeHtml(s.room||'')}</small></td><td data-label="الصف">${escapeHtml(gradeMap.get(s.gradeLevelId)?.name||'')}</td><td data-label="السعة">${s.capacity}</td><td data-label="المربي">${escapeHtml(teacherMap.get(s.homeroomTeacherId)?.fullName||'غير محدد')}</td></tr>`).join('')}</tbody></table></div></article>
-    <article class="card"><header class="card__header"><div><h3>المواد الدراسية</h3><p>الدرجات وحد النجاح</p></div></header><div class="bar-list">${subjects.filter(s=>s.status==='active').map(s=>`<div class="bar-row" style="grid-template-columns:110px 1fr 70px"><span><i style="display:inline-block;width:8px;height:8px;background:${escapeHtml(s.color)};border-radius:3px;margin-inline-end:5px"></i>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill" style="width:${s.passScore}%;background:${escapeHtml(s.color)}"></div></div><strong>${s.passScore}/${s.maxScore}</strong></div>`).join('')}</div></article></section>
+    <section class="grid grid--2"><article class="card"><header class="card__header"><div><h3>الشعب الدراسية</h3><p>السعة والمربي والغرفة</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>الشعبة</th><th>الصف</th><th>السعة</th><th>المربي</th>${state.user.role==='admin'?'<th></th>':''}</tr></thead><tbody>${sections.filter(s=>s.status==='active').map(s=>`<tr><td data-label="الشعبة"><strong>${escapeHtml(s.name)}</strong><small style="display:block;color:var(--muted)">${escapeHtml(s.room||'')}</small></td><td data-label="الصف">${escapeHtml(gradeMap.get(s.gradeLevelId)?.name||'')}</td><td data-label="السعة">${s.capacity}</td><td data-label="المربي">${escapeHtml(teacherMap.get(s.homeroomTeacherId)?.fullName||'غير محدد')}</td>${state.user.role==='admin'?`<td data-label=""><div class="table-actions"><button class="icon-button" type="button" data-edit-section="${s.id}" aria-label="تعديل ${escapeHtml(s.name)}">✎</button><button class="icon-button" type="button" data-archive-section="${s.id}" aria-label="أرشفة ${escapeHtml(s.name)}">🗄</button></div></td>`:''}</tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد شعب بعد','أضف الشعبة الأولى بعد اختيار الصف.')}</td></tr>`}</tbody></table></div></article>
+    <article class="card"><header class="card__header"><div><h3>المواد الدراسية</h3><p>الدرجات وحد النجاح</p></div></header><div class="bar-list">${subjects.filter(s=>s.status==='active').map(s=>`<div class="bar-row" style="grid-template-columns:110px 1fr 70px${state.user.role==='admin'?' 60px':''}"><span><i style="display:inline-block;width:8px;height:8px;background:${escapeHtml(s.color)};border-radius:3px;margin-inline-end:5px"></i>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill" style="width:${s.passScore}%;background:${escapeHtml(s.color)}"></div></div><strong>${s.passScore}/${s.maxScore}</strong>${state.user.role==='admin'?`<button class="icon-button" type="button" data-edit-subject="${s.id}" aria-label="تعديل ${escapeHtml(s.name)}">✎</button>`:''}</div>`).join('')}</div></article></section>
     <section class="card data-card" style="margin-top:16px"><header class="card__header"><div><h3>تكليفات المعلمين</h3><p>الرابط الرسمي بين المعلم والمادة والشعبة؛ ومنه تُنشأ الحصص والتقييمات والصلاحيات.</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>المعلم</th><th>المادة</th><th>الشعبة</th><th>الفصل</th><th>الحالة</th></tr></thead><tbody>${visibleAssignments.filter(assignment => assignment.status === 'active').map(assignment => `<tr><td data-label="المعلم">${escapeHtml(teacherMap.get(assignment.teacherId)?.fullName || '—')}</td><td data-label="المادة">${escapeHtml(subjectMap.get(assignment.subjectId)?.name || '—')}</td><td data-label="الشعبة">${escapeHtml(sectionMap.get(assignment.sectionId)?.name || '—')}</td><td data-label="الفصل">${escapeHtml(activeYear?.terms?.find(term => term.id === assignment.termId)?.name || '—')}</td><td data-label="الحالة">${statusBadge(assignment.status)}</td></tr>`).join('') || `<tr><td colspan="5">${renderEmpty('لا توجد تكليفات','أضف تكليفاً لربط المعلم بالمادة والشعبة.')}</td></tr>`}</tbody></table></div></section>
   </div>`;
   $('#add-assignment')?.addEventListener('click', () => openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, assignments, onSaved: renderAcademics }));
   $('#add-section')?.addEventListener('click', () => openSectionForm({ activeYear, grades, teachers }));
-  $('#add-subject')?.addEventListener('click', openSubjectForm);
+  $('#add-subject')?.addEventListener('click', () => openSubjectForm());
   $('#add-year')?.addEventListener('click', () => openAcademicYearForm({ hasActiveYear: !!activeYear }));
-  $('#add-grade')?.addEventListener('click', openGradeLevelForm);
+  $('#add-grade')?.addEventListener('click', () => openGradeLevelForm());
   $$('[data-activate-year]').forEach(button => button.addEventListener('click', () => activateAcademicYear(button.dataset.activateYear)));
+  $$('[data-edit-year]').forEach(button => button.addEventListener('click', () => openAcademicYearForm({ hasActiveYear: !!activeYear, existing: years.find(y => y.id === button.dataset.editYear) })));
+  $$('[data-edit-grade]').forEach(button => button.addEventListener('click', () => openGradeLevelForm(grades.find(g => g.id === button.dataset.editGrade))));
+  $$('[data-archive-grade]').forEach(button => button.addEventListener('click', () => {
+    const grade = grades.find(g => g.id === button.dataset.archiveGrade);
+    if (sections.some(s => s.status === 'active' && s.gradeLevelId === grade.id)) {
+      showToast('تعذّرت الأرشفة', 'يوجد شعب مرتبطة بهذا الصف. أرشف الشعب أولاً.', 'error');
+      return;
+    }
+    archiveRecord('gradeLevels', grade.id, 'GRADE_LEVEL_ARCHIVED', grade.name);
+  }));
+  $$('[data-edit-section]').forEach(button => button.addEventListener('click', () => openSectionForm({ activeYear, grades, teachers, existing: sections.find(s => s.id === button.dataset.editSection) })));
+  $$('[data-archive-section]').forEach(button => button.addEventListener('click', () => {
+    const section = sections.find(s => s.id === button.dataset.archiveSection);
+    archiveRecord('sections', section.id, 'SECTION_ARCHIVED', section.name);
+  }));
+  $$('[data-edit-subject]').forEach(button => button.addEventListener('click', () => openSubjectForm(subjects.find(s => s.id === button.dataset.editSubject))));
 }
 
 function openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, assignments, teacherId = '', onSaved = renderAcademics }) {
@@ -1416,32 +1432,70 @@ function openTeachingAssignmentForm({ activeYear, teachers, subjects, sections, 
   });
 }
 
-function openSectionForm({ activeYear, grades, teachers }) {
-  openModal({ title:'إضافة شعبة دراسية', kicker:'الهيكل الأكاديمي', body:`<form id="section-form" class="form-grid"><div class="field"><label>اسم الشعبة *</label><input name="name" required placeholder="مثال: السابع ج"></div><div class="field"><label>الصف *</label><select name="gradeLevelId" required><option value="">اختر الصف</option>${grades.filter(g=>g.status==='active').map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select></div><div class="field"><label>السعة *</label><input name="capacity" type="number" min="1" max="60" required value="30"></div><div class="field"><label>الغرفة</label><input name="room" placeholder="A-10"></div><div class="field field--full"><label>مربي الشعبة</label><select name="homeroomTeacherId"><option value="">غير محدد</option>${teachers.filter(t=>t.status==='active').map(t=>`<option value="${t.id}">${escapeHtml(t.fullName)}</option>`).join('')}</select></div><p class="form-message field--full" id="section-message"></p></form>`, footer:'<button class="button button--primary" id="save-section">إضافة الشعبة</button><button class="button button--secondary" data-modal-close>إلغاء</button>', onOpen:()=>{
-    $('#save-section').addEventListener('click',async()=>{ const form=$('#section-form'); if(!form.reportValidity())return; const data=Object.fromEntries(new FormData(form)); const duplicate=(await dbGetAll('sections')).find(s=>s.academicYearId===activeYear.id&&normalizeArabic(s.name)===normalizeArabic(data.name)); if(duplicate){$('#section-message').textContent='اسم الشعبة موجود في السنة الحالية.';return;} const section=baseRecord(uid('section'),{academicYearId:activeYear.id,gradeLevelId:data.gradeLevelId,name:data.name.trim(),capacity:Number(data.capacity),room:data.room.trim(),homeroomTeacherId:data.homeroomTeacherId||null,createdBy:state.user.id,updatedBy:state.user.id}); await dbPut('sections',section); await audit('SECTION_CREATED','section',section.id,null,{name:section.name}); closeModal();showToast('تمت الإضافة','أضيفت الشعبة الجديدة.','success');renderAcademics(); });
+/** إضافة أو تعديل شعبة. تمرير existing يفتح النموذج في وضع التعديل. */
+function openSectionForm({ activeYear, grades, teachers, existing = null }) {
+  openModal({ title: existing ? 'تعديل شعبة' : 'إضافة شعبة دراسية', kicker:'الهيكل الأكاديمي', body:`<form id="section-form" class="form-grid"><div class="field"><label>اسم الشعبة *</label><input name="name" required placeholder="مثال: السابع ج" value="${escapeHtml(existing?.name || '')}"></div><div class="field"><label>الصف *</label><select name="gradeLevelId" required><option value="">اختر الصف</option>${grades.filter(g=>g.status==='active').map(g=>`<option value="${g.id}" ${g.id===existing?.gradeLevelId?'selected':''}>${escapeHtml(g.name)}</option>`).join('')}</select></div><div class="field"><label>السعة *</label><input name="capacity" type="number" min="1" max="60" required value="${existing?.capacity ?? 30}"></div><div class="field"><label>الغرفة</label><input name="room" placeholder="A-10" value="${escapeHtml(existing?.room || '')}"></div><div class="field field--full"><label>مربي الشعبة</label><select name="homeroomTeacherId"><option value="">غير محدد</option>${teachers.filter(t=>t.status==='active').map(t=>`<option value="${t.id}" ${t.id===existing?.homeroomTeacherId?'selected':''}>${escapeHtml(t.fullName)}</option>`).join('')}</select></div><p class="form-message field--full" id="section-message"></p></form>`, footer:`<button class="button button--primary" id="save-section">${existing ? 'حفظ التعديل' : 'إضافة الشعبة'}</button><button class="button button--secondary" data-modal-close>إلغاء</button>`, onOpen:()=>{
+    $('#save-section').addEventListener('click',async()=>{ const form=$('#section-form'); if(!form.reportValidity())return; const data=Object.fromEntries(new FormData(form)); const duplicate=(await dbGetAll('sections')).find(s=>s.id!==existing?.id&&s.status==='active'&&s.academicYearId===(existing?.academicYearId||activeYear.id)&&normalizeArabic(s.name)===normalizeArabic(data.name)); if(duplicate){$('#section-message').textContent='اسم الشعبة موجود في السنة الحالية.';return;}
+      const section = existing
+        ? { ...existing, gradeLevelId: data.gradeLevelId, name: data.name.trim(), capacity: Number(data.capacity), room: data.room.trim(), homeroomTeacherId: data.homeroomTeacherId || null, updatedAt: nowIso(), updatedBy: state.user.id }
+        : baseRecord(uid('section'),{academicYearId:activeYear.id,gradeLevelId:data.gradeLevelId,name:data.name.trim(),capacity:Number(data.capacity),room:data.room.trim(),homeroomTeacherId:data.homeroomTeacherId||null,createdBy:state.user.id,updatedBy:state.user.id});
+      await dbPut('sections',section); await audit(existing ? 'SECTION_UPDATED' : 'SECTION_CREATED','section',section.id,null,{name:section.name}); closeModal();showToast(existing ? 'تم الحفظ' : 'تمت الإضافة', existing ? 'حُفظت تعديلات الشعبة.' : 'أضيفت الشعبة الجديدة.','success');renderAcademics(); });
   }});
 }
 
+/** يخفي أي سجل من القوائم النشطة بلا حذف بياناته — نفس نمط الأرشفة المستخدم في بقية النظام. */
+async function archiveRecord(store, id, auditAction, label) {
+  const record = await dbGet(store, id);
+  if (!record) return;
+  await dbPut(store, { ...record, status: 'archived', updatedAt: nowIso(), updatedBy: state.user.id });
+  await audit(auditAction, store, id, null, { name: label });
+  showToast('تمت الأرشفة', `${label} لم يعد يظهر في القوائم النشطة.`, 'success');
+  renderAcademics();
+}
+
 /** أول شيء يُنشأ في أي مدرسة جديدة — بلا سنة نشطة لا يمكن إضافة شعبة أو طالب. */
-function openAcademicYearForm({ hasActiveYear }) {
+function openAcademicYearForm({ hasActiveYear, existing = null }) {
   const today = new Date();
   const suggestedName = `${today.getFullYear()} / ${today.getFullYear() + 1}`;
   openModal({
-    title: 'إضافة سنة دراسية', kicker: 'الهيكل الأكاديمي',
+    title: existing ? 'تعديل سنة دراسية' : 'إضافة سنة دراسية', kicker: 'الهيكل الأكاديمي',
     body: `<form id="year-form" class="form-grid">
-      <div class="field field--full"><label>اسم السنة *</label><input name="name" required value="${escapeHtml(suggestedName)}" placeholder="2026 / 2027"></div>
-      <div class="field"><label>تاريخ البداية *</label><input name="startsOn" type="date" required></div>
-      <div class="field"><label>تاريخ النهاية *</label><input name="endsOn" type="date" required></div>
-      <div class="field field--full"><label><input type="checkbox" name="isActive" ${hasActiveYear ? '' : 'checked disabled'}> تفعيل هذه السنة الآن${hasActiveYear ? ' (يوجد سنة نشطة بالفعل — عطّلها أولاً من الجدول لتفعيل غيرها)' : ''}</label></div>
+      <div class="field field--full"><label>اسم السنة *</label><input name="name" required value="${escapeHtml(existing?.name || suggestedName)}" placeholder="2026 / 2027"></div>
+      <div class="field"><label>تاريخ البداية *</label><input name="startsOn" type="date" required value="${escapeHtml(existing?.startsOn || '')}"></div>
+      <div class="field"><label>تاريخ النهاية *</label><input name="endsOn" type="date" required value="${escapeHtml(existing?.endsOn || '')}"></div>
+      ${existing ? `
+      <div class="field field--full"><h4 style="margin:10px 0 6px;font-size:14px">الفصول الدراسية</h4></div>
+      <div class="field"><label>اسم الفصل الأول</label><input name="term1Name" value="${escapeHtml(existing.terms?.[0]?.name || 'الفصل الأول')}"></div>
+      <div class="field"><label>بداية الفصل الأول</label><input name="term1Starts" type="date" value="${escapeHtml(existing.terms?.[0]?.startsOn || '')}"></div>
+      <div class="field"><label>نهاية الفصل الأول</label><input name="term1Ends" type="date" value="${escapeHtml(existing.terms?.[0]?.endsOn || '')}"></div>
+      <div class="field"><label>اسم الفصل الثاني</label><input name="term2Name" value="${escapeHtml(existing.terms?.[1]?.name || 'الفصل الثاني')}"></div>
+      <div class="field"><label>بداية الفصل الثاني</label><input name="term2Starts" type="date" value="${escapeHtml(existing.terms?.[1]?.startsOn || '')}"></div>
+      <div class="field"><label>نهاية الفصل الثاني</label><input name="term2Ends" type="date" value="${escapeHtml(existing.terms?.[1]?.endsOn || '')}"></div>
+      ` : `<div class="field field--full"><label><input type="checkbox" name="isActive" ${hasActiveYear ? '' : 'checked disabled'}> تفعيل هذه السنة الآن${hasActiveYear ? ' (يوجد سنة نشطة بالفعل — عطّلها أولاً من الجدول لتفعيل غيرها)' : ''}</label></div>`}
       <p class="form-message field--full" id="year-message"></p>
     </form>`,
-    footer: '<button class="button button--primary" id="save-year">إضافة السنة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    footer: `<button class="button button--primary" id="save-year">${existing ? 'حفظ التعديل' : 'إضافة السنة'}</button><button class="button button--secondary" data-modal-close>إلغاء</button>`,
     onOpen: () => {
       $('#save-year').addEventListener('click', async () => {
         const form = $('#year-form');
         if (!form.reportValidity()) return;
         const data = Object.fromEntries(new FormData(form));
         if (data.endsOn <= data.startsOn) { $('#year-message').textContent = 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية.'; return; }
+
+        if (existing) {
+          const terms = [
+            { id: existing.terms?.[0]?.id || uid('term'), name: data.term1Name.trim() || 'الفصل الأول', startsOn: data.term1Starts || data.startsOn, endsOn: data.term1Ends || data.endsOn },
+            { id: existing.terms?.[1]?.id || uid('term'), name: data.term2Name.trim() || 'الفصل الثاني', startsOn: data.term2Starts || data.startsOn, endsOn: data.term2Ends || data.endsOn },
+          ];
+          const year = { ...existing, name: data.name.trim(), startsOn: data.startsOn, endsOn: data.endsOn, terms, updatedAt: nowIso(), updatedBy: state.user.id };
+          await dbPut('academicYears', year);
+          await audit('ACADEMIC_YEAR_UPDATED', 'academicYear', year.id, null, { name: year.name });
+          closeModal();
+          showToast('تم الحفظ', 'حُفظت تعديلات السنة والفصول.', 'success');
+          renderAcademics();
+          return;
+        }
+
         const makeActive = !hasActiveYear || data.isActive === 'on';
         if (makeActive) {
           // سنة نشطة واحدة فقط في كل وقت — نُطفئ أي سنة أخرى أولاً.
@@ -1484,40 +1538,40 @@ async function activateAcademicYear(yearId) {
 }
 
 /** ثاني خطوة بعد السنة الدراسية — الشعبة تحتاج صفًّا موجودًا لتُنشأ. */
-function openGradeLevelForm() {
+function openGradeLevelForm(existing = null) {
   openModal({
-    title: 'إضافة صف دراسي', kicker: 'الهيكل الأكاديمي',
+    title: existing ? 'تعديل صف دراسي' : 'إضافة صف دراسي', kicker: 'الهيكل الأكاديمي',
     body: `<form id="grade-form" class="form-grid">
-      <div class="field"><label>اسم الصف *</label><input name="name" required placeholder="الصف السابع"></div>
-      <div class="field"><label>الرمز *</label><input name="code" required dir="ltr" placeholder="G07"></div>
-      <div class="field field--full"><label>المرحلة</label><input name="stage" placeholder="المرحلة الأساسية العليا"></div>
+      <div class="field"><label>اسم الصف *</label><input name="name" required placeholder="الصف السابع" value="${escapeHtml(existing?.name || '')}"></div>
+      <div class="field"><label>الرمز *</label><input name="code" required dir="ltr" placeholder="G07" value="${escapeHtml(existing?.code || '')}" ${existing ? 'readonly' : ''}></div>
+      <div class="field field--full"><label>المرحلة</label><input name="stage" placeholder="المرحلة الأساسية العليا" value="${escapeHtml(existing?.stage || '')}"></div>
       <p class="form-message field--full" id="grade-message"></p>
     </form>`,
-    footer: '<button class="button button--primary" id="save-grade">إضافة الصف</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    footer: `<button class="button button--primary" id="save-grade">${existing ? 'حفظ التعديل' : 'إضافة الصف'}</button><button class="button button--secondary" data-modal-close>إلغاء</button>`,
     onOpen: () => {
       $('#save-grade').addEventListener('click', async () => {
         const form = $('#grade-form');
         if (!form.reportValidity()) return;
         const data = Object.fromEntries(new FormData(form));
         const code = data.code.trim().toUpperCase();
-        if ((await dbIndexAll('gradeLevels', 'code', code))[0]) { $('#grade-message').textContent = 'رمز الصف مستخدم بالفعل.'; return; }
-        const grades = await dbGetAll('gradeLevels');
-        const grade = baseRecord(uid('grade'), {
-          code, name: data.name.trim(), stage: data.stage.trim(),
-          order: grades.length + 1, createdBy: state.user.id, updatedBy: state.user.id,
-        });
+        if (!existing) {
+          if ((await dbIndexAll('gradeLevels', 'code', code))[0]) { $('#grade-message').textContent = 'رمز الصف مستخدم بالفعل.'; return; }
+        }
+        const grade = existing
+          ? { ...existing, name: data.name.trim(), stage: data.stage.trim(), updatedAt: nowIso(), updatedBy: state.user.id }
+          : baseRecord(uid('grade'), { code, name: data.name.trim(), stage: data.stage.trim(), order: (await dbGetAll('gradeLevels')).length + 1, createdBy: state.user.id, updatedBy: state.user.id });
         await dbPut('gradeLevels', grade);
-        await audit('GRADE_LEVEL_CREATED', 'gradeLevel', grade.id, null, { name: grade.name });
+        await audit(existing ? 'GRADE_LEVEL_UPDATED' : 'GRADE_LEVEL_CREATED', 'gradeLevel', grade.id, null, { name: grade.name });
         closeModal();
-        showToast('تمت الإضافة', 'أضيف الصف الدراسي.', 'success');
+        showToast(existing ? 'تم الحفظ' : 'تمت الإضافة', existing ? 'حُفظت تعديلات الصف.' : 'أضيف الصف الدراسي.', 'success');
         renderAcademics();
       });
     },
   });
 }
 
-function openSubjectForm() {
-  openModal({title:'إضافة مادة دراسية',kicker:'المواد',body:`<form id="subject-form" class="form-grid"><div class="field"><label>اسم المادة *</label><input name="name" required></div><div class="field"><label>الرمز *</label><input name="code" required dir="ltr"></div><div class="field"><label>الدرجة القصوى *</label><input name="maxScore" type="number" min="1" required value="100"></div><div class="field"><label>درجة النجاح *</label><input name="passScore" type="number" min="0" required value="50"></div><div class="field field--full"><label>لون المادة</label><input name="color" type="color" value="#155EEF"></div><p class="form-message field--full" id="subject-message"></p></form>`,footer:'<button class="button button--primary" id="save-subject">إضافة المادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-subject').addEventListener('click',async()=>{const form=$('#subject-form');if(!form.reportValidity())return;const data=Object.fromEntries(new FormData(form));if(Number(data.passScore)>Number(data.maxScore)){ $('#subject-message').textContent='درجة النجاح لا يمكن أن تتجاوز الدرجة القصوى.';return;}if((await dbIndexAll('subjects','code',data.code.trim().toUpperCase()))[0]){$('#subject-message').textContent='رمز المادة مستخدم.';return;}const subject=baseRecord(uid('subject'),{name:data.name.trim(),code:data.code.trim().toUpperCase(),maxScore:Number(data.maxScore),passScore:Number(data.passScore),color:data.color,gradeLevelIds:[],createdBy:state.user.id,updatedBy:state.user.id});await dbPut('subjects',subject);await audit('SUBJECT_CREATED','subject',subject.id,null,{name:subject.name});closeModal();showToast('تمت الإضافة','أضيفت المادة بنجاح.','success');renderAcademics();});}});
+function openSubjectForm(existing = null) {
+  openModal({title: existing ? 'تعديل مادة دراسية' : 'إضافة مادة دراسية',kicker:'المواد',body:`<form id="subject-form" class="form-grid"><div class="field"><label>اسم المادة *</label><input name="name" required value="${escapeHtml(existing?.name || '')}"></div><div class="field"><label>الرمز *</label><input name="code" required dir="ltr" value="${escapeHtml(existing?.code || '')}" ${existing ? 'readonly' : ''}></div><div class="field"><label>الدرجة القصوى *</label><input name="maxScore" type="number" min="1" required value="${existing?.maxScore ?? 100}"></div><div class="field"><label>درجة النجاح *</label><input name="passScore" type="number" min="0" required value="${existing?.passScore ?? 50}"></div><div class="field field--full"><label>لون المادة</label><input name="color" type="color" value="${escapeHtml(existing?.color || '#155EEF')}"></div><p class="form-message field--full" id="subject-message"></p></form>`,footer:`<button class="button button--primary" id="save-subject">${existing ? 'حفظ التعديل' : 'إضافة المادة'}</button><button class="button button--secondary" data-modal-close>إلغاء</button>`,onOpen:()=>{$('#save-subject').addEventListener('click',async()=>{const form=$('#subject-form');if(!form.reportValidity())return;const data=Object.fromEntries(new FormData(form));if(Number(data.passScore)>Number(data.maxScore)){ $('#subject-message').textContent='درجة النجاح لا يمكن أن تتجاوز الدرجة القصوى.';return;}if(!existing&&(await dbIndexAll('subjects','code',data.code.trim().toUpperCase()))[0]){$('#subject-message').textContent='رمز المادة مستخدم.';return;}const subject=existing?{...existing,name:data.name.trim(),maxScore:Number(data.maxScore),passScore:Number(data.passScore),color:data.color,updatedAt:nowIso(),updatedBy:state.user.id}:baseRecord(uid('subject'),{name:data.name.trim(),code:data.code.trim().toUpperCase(),maxScore:Number(data.maxScore),passScore:Number(data.passScore),color:data.color,gradeLevelIds:[],createdBy:state.user.id,updatedBy:state.user.id});await dbPut('subjects',subject);await audit(existing?'SUBJECT_UPDATED':'SUBJECT_CREATED','subject',subject.id,null,{name:subject.name});closeModal();showToast(existing?'تم الحفظ':'تمت الإضافة',existing?'حُفظت تعديلات المادة.':'أضيفت المادة بنجاح.','success');renderAcademics();});}});
 }
 
 async function timetableContext() {
