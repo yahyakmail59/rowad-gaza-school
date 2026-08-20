@@ -439,6 +439,84 @@ async function changeTenantPlan(env, signed, tenantIdFromPath) {
   }
 }
 
+/**
+ * تحديث هوية المدرسة من لوحة أثر.
+ *
+ * الاسم والباقة يملكهما السجل التجاري لا المدرسة: مدير المدرسة لا يرقّي باقته
+ * بنفسه، ولا يغيّر الاسم الذي بيع عليه الاشتراك. لذلك أُخفيت هذه الحقول من
+ * إعدادات المدرسة، ويجب أن يوجد طريق لتغييرها من هنا وإلا صارت غير قابلة
+ * للتعديل إطلاقًا.
+ *
+ * التحديث يمس موضعين: صف المدرسة (مرجع الخادم) وسجل `settings/schoolProfile`
+ * داخل `records`، وهو ما تقرؤه الواجهة. تحديث الأول وحده يترك الأجهزة تعرض
+ * الاسم القديم إلى الأبد.
+ */
+async function updateTenantProfile(env, signed, tenantIdFromPath) {
+  const db = env.DB;
+  const tenantId = adapterRequired(tenantIdFromPath, 'INVALID_TENANT_ID', 80);
+  const started = await beginAdapterRequest(db, signed.requestId, 'update_profile', tenantId, signed.requestHash);
+  if (started.replay) return json({ ...started.result, replayed: true });
+
+  try {
+    const school = await db.prepare(
+      'SELECT school_id, name, profile_json FROM schools WHERE control_tenant_id = ?',
+    ).bind(tenantId).first();
+    if (!school) throw new HttpError(404, 'TENANT_NOT_FOUND', 'Product tenant was not found.');
+
+    let profile = {};
+    try {
+      profile = JSON.parse(school.profile_json || '{}');
+    } catch { /* ملف هوية تالف يُعاد بناؤه بدل أن يوقف التحديث */ }
+
+    const nextName = signed.body.display_name === undefined
+      ? String(school.name)
+      : adapterRequired(signed.body.display_name, 'INVALID_DISPLAY_NAME', 160);
+    const nextShort = signed.body.short_name === undefined
+      ? String(profile.shortName || nextName)
+      : (str(signed.body.short_name, 60).trim() || nextName);
+
+    const now = Date.now();
+    profile = { ...profile, name: nextName, shortName: nextShort };
+    const result = {
+      ok: true, request_id: signed.requestId, tenant_id: tenantId,
+      external_tenant_id: school.school_id, display_name: nextName, short_name: nextShort,
+    };
+
+    // السجل المزامَن: نقرأ الموجود ونحدّث حقلي الاسم فيه دون مسح بقية الهوية
+    // (الشعار والألوان وبيانات الشهادات) التي تخص المدرسة لا أثر.
+    const row = await db.prepare(
+      "SELECT doc_json FROM records WHERE school_id = ? AND store = 'settings' AND id = 'schoolProfile'",
+    ).bind(school.school_id).first();
+    let doc = { id: 'schoolProfile', key: 'schoolProfile', value: {} };
+    if (row) {
+      try {
+        doc = JSON.parse(row.doc_json);
+      } catch { /* كما أعلاه */ }
+    }
+    doc.value = { ...(doc.value || {}), name: nextName, shortName: nextShort };
+
+    await db.batch([
+      db.prepare('UPDATE schools SET name = ?, profile_json = ?, updated_at = ? WHERE control_tenant_id = ?')
+        .bind(nextName, JSON.stringify(profile), now, tenantId),
+      db.prepare(
+        `INSERT INTO records (school_id, store, id, doc_json, deleted, version, updated_at, updated_by)
+         VALUES (?, 'settings', 'schoolProfile', ?, 0, 1, ?, 'athar')
+         ON CONFLICT(school_id, store, id) DO UPDATE SET
+           doc_json = excluded.doc_json, deleted = 0,
+           version = records.version + 1, updated_at = excluded.updated_at, updated_by = 'athar'`,
+      ).bind(school.school_id, JSON.stringify(doc), now),
+      db.prepare(
+        `UPDATE adapter_requests SET status = 'succeeded', response_json = ?, error_code = '', completed_at = ?
+         WHERE request_id = ?`,
+      ).bind(JSON.stringify(result), now, signed.requestId),
+    ]);
+    return json(result);
+  } catch (error) {
+    await markAdapterFailed(db, signed.requestId, error instanceof HttpError ? error.code : 'PROFILE_UPDATE_FAILED');
+    throw error;
+  }
+}
+
 async function resetAdminPassword(env, signed, tenantIdFromPath) {
   const db = env.DB;
   const tenantId = adapterRequired(tenantIdFromPath, 'INVALID_TENANT_ID', 80);
@@ -575,6 +653,10 @@ async function handleAdapter(request, env) {
     const statusMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/status$/);
     if (statusMatch && method === 'POST') return await changeTenantStatus(env, signed, decodeURIComponent(statusMatch[1]));
 
+    const profileMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/profile$/);
+    if (profileMatch && method === 'POST') {
+      return await updateTenantProfile(env, signed, decodeURIComponent(profileMatch[1]));
+    }
     const planMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/plan$/);
     if (planMatch && method === 'POST') return await changeTenantPlan(env, signed, decodeURIComponent(planMatch[1]));
 
@@ -860,6 +942,30 @@ async function push(request, env, session) {
       continue;
     }
     doc = deleted ? { id } : { ...doc, id };
+
+    // الاسم والباقة يملكهما السجل التجاري في أثر. إخفاء الحقل من الإعدادات
+    // يمنع الخطأ لا القصد: طلب مصنوع بيدٍ يستطيع رفع اسم أو باقة جديدين.
+    // نحتفظ بقيم الخادم مهما أُرسل، فيبقى المنع حيث يجب أن يكون.
+    if (store === 'settings' && id === 'schoolProfile' && !deleted) {
+      const current = await env.DB.prepare(
+        "SELECT doc_json FROM records WHERE school_id = ? AND store = 'settings' AND id = 'schoolProfile'",
+      ).bind(session.school_id).first();
+      let owned = {};
+      if (current) {
+        try {
+          owned = JSON.parse(current.doc_json)?.value || {};
+        } catch { /* مستند تالف: نعيد بناءه من صف المدرسة أدناه */ }
+      }
+      const school = await env.DB.prepare('SELECT name, plan_code FROM schools WHERE school_id = ?')
+        .bind(session.school_id).first();
+      doc.value = {
+        ...(doc.value || {}),
+        name: owned.name || school?.name || '',
+        shortName: owned.shortName || school?.name || '',
+        plan: school?.plan_code || owned.plan || 'basic',
+      };
+    }
+
     const payload = JSON.stringify(doc);
     if (payload.length > 64 * 1024) {
       rejected.push({ store, id, code: 'DOC_TOO_LARGE' });

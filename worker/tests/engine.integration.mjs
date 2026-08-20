@@ -572,6 +572,40 @@ try {
   const defaulted = await createSchool('defaulted', 'مدرسة افتراضية', 'production', 'basic');
   assert.equal(defaulted.credentials.username, 'admin');
 
+  /* ---------- الهوية والباقة يملكهما السجل التجاري ---------- */
+
+  const idSchool = await createSchool('identity', 'الاسم الأول', 'production', 'basic');
+  const idToken = (await login(idSchool.credentials.school_id, 'admin', idSchool.credentials.admin_password)).payload.token;
+
+  // محاولة مصنوعة بيد: ترفع اسمًا وباقة جديدين رغم إخفاء الحقول من الواجهة.
+  const forged = await (await authed(idToken, '/api/push', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ changes: [{ store: 'settings', id: 'schoolProfile',
+      doc: { id: 'schoolProfile', key: 'schoolProfile',
+        value: { name: 'اسم مسروق', shortName: 'مسروق', plan: 'full', phone: '0599' } } }] }),
+  })).json();
+  assert.equal(forged.accepted, 1, 'the write is accepted, but the owned fields are not');
+
+  const afterForge = await pullAll(idToken, 'settings');
+  const profile = afterForge.stores.settings.find((r) => r.id === 'schoolProfile').doc.value;
+  assert.equal(profile.name, 'الاسم الأول', 'the school cannot rename itself');
+  assert.equal(profile.plan, 'basic', 'the school cannot upgrade its own plan');
+  assert.equal(profile.phone, '0599', 'fields the school does own are still saved');
+
+  // أثر تغيّرها، ويصل التغيير إلى الأجهزة بالمزامنة.
+  const profileId = randomUUID();
+  const renamed = await ok(await signed('POST', `/internal/v1/tenants/${idSchool.tenantId}/profile`, profileId, {
+    request_id: profileId, tenant_id: idSchool.tenantId,
+    display_name: 'الاسم الجديد', short_name: 'الجديد',
+  }), 'Athar renames the school');
+  assert.equal(renamed.display_name, 'الاسم الجديد');
+
+  const afterRename = await pullAll(idToken, 'settings');
+  const renamedProfile = afterRename.stores.settings.find((r) => r.id === 'schoolProfile').doc.value;
+  assert.equal(renamedProfile.name, 'الاسم الجديد', 'the rename reaches the device');
+  assert.equal(renamedProfile.shortName, 'الجديد');
+  assert.equal(renamedProfile.phone, '0599', 'the rename keeps what the school owns');
+
   console.log('school-engine-integration-ok');
 } finally {
   await miniflare.dispose();
