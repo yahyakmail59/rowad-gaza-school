@@ -539,7 +539,13 @@ async function signIn(username, password) {
   let matches = await dbIndexAll('users', 'username', typedUsername);
   if (!matches.length && typedUsername !== typedUsername.toLowerCase()) matches = await dbIndexAll('users', 'username', typedUsername.toLowerCase());
   const user = matches[0];
-  const genericError = new Error('بيانات الدخول غير صحيحة. تحقق وحاول مرة أخرى.');
+  // الرسالة موحّدة عمدًا فلا تكشف أي الحقلين كان خاطئًا، لكنها تذكّر بالمسار
+  // الآخر: من يحمل بيانات لوحة أثر يحتاج الربط لا هذا النموذج.
+  const genericError = new Error(
+    Sync.isLinked()
+      ? 'بيانات الدخول غير صحيحة. تحقق وحاول مرة أخرى.'
+      : 'بيانات الدخول غير صحيحة. إن كانت بيانات مدرسة من لوحة أثر فاربط الجهاز أولًا.',
+  );
   if (!user || user.status !== 'active') throw genericError;
   if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) throw genericError;
   const ok = await verifyPassword(password, user);
@@ -679,6 +685,13 @@ function showAuth() {
   $('#auth-screen').hidden = false;
   $('#app-shell').hidden = true;
   $('#user-popover').hidden = true;
+  // شاشة الدخول تتحقق من حسابات هذا الجهاز وحده. من يحمل بيانات مدرسة من
+  // لوحة أثر سيكتبها هنا ويُرفض، فيجب أن يرى الطريق الصحيح أمامه لا أن يخمّنه.
+  const banner = $('#link-banner');
+  if (banner) {
+    banner.hidden = Sync.isLinked();
+    $('#auth-link-button')?.addEventListener('click', openLinkDialog, { once: true });
+  }
   setTimeout(() => $('#username')?.focus(), 20);
 }
 
