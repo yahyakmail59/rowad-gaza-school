@@ -240,6 +240,22 @@ const planCodeOf = (raw) => {
   return 'basic';
 };
 
+/**
+ * شكل بيانات الدخول الموحّد بين المحركات. لوحة أثر تقرأ
+ * `login_id/username/secret` ولا تحتاج أن تعرف تسمية كل منتج لسرّه.
+ */
+function credentialPayload(schoolId, password) {
+  return {
+    login_id: schoolId,
+    username: 'admin',
+    secret: password,
+    secret_label: 'كلمة مرور المدير',
+    school_id: schoolId,
+    admin_username: 'admin',
+    admin_password: password,
+  };
+}
+
 async function provisionFromAthar(env, signed) {
   const db = env.DB;
   const body = signed.body;
@@ -257,7 +273,7 @@ async function provisionFromAthar(env, signed) {
   if (started.replay) {
     return json({
       ...started.result,
-      credentials: { school_id: started.result.external_tenant_id, admin_username: 'admin', admin_password: password },
+      credentials: credentialPayload(started.result.external_tenant_id, password),
       replayed: true,
     });
   }
@@ -324,7 +340,7 @@ async function provisionFromAthar(env, signed) {
     console.log(JSON.stringify({ event: 'adapter.provision', request_id: signed.requestId, tenant_id: tenantId, status: 'succeeded' }));
     return json({
       ...result,
-      credentials: { school_id: schoolId, admin_username: 'admin', admin_password: password },
+      credentials: credentialPayload(schoolId, password),
     }, 201);
   } catch (error) {
     await markAdapterFailed(db, signed.requestId, error instanceof HttpError ? error.code : 'PROVISIONING_FAILED');
@@ -423,7 +439,7 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
   if (started.replay) {
     return json({
       ...started.result,
-      credentials: { school_id: started.result.external_tenant_id, admin_username: 'admin', admin_password: password },
+      credentials: credentialPayload(started.result.external_tenant_id, password),
       replayed: true,
     });
   }
@@ -455,7 +471,7 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
     ]);
     return json({
       ...result,
-      credentials: { school_id: school.school_id, admin_username: 'admin', admin_password: password },
+      credentials: credentialPayload(school.school_id, password),
     });
   } catch (error) {
     await markAdapterFailed(db, signed.requestId, error instanceof HttpError ? error.code : 'PASSWORD_RESET_FAILED');
@@ -539,8 +555,13 @@ async function handleAdapter(request, env) {
     const planMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/plan$/);
     if (planMatch && method === 'POST') return await changeTenantPlan(env, signed, decodeURIComponent(planMatch[1]));
 
-    const passwordMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/reset-admin-password$/);
-    if (passwordMatch && method === 'POST') return await resetAdminPassword(env, signed, decodeURIComponent(passwordMatch[1]));
+    // المسار الموحّد لكل المحركات؛ الاسم الخاص بالمدرسة يبقى مقبولاً.
+    const credentialMatch = path.match(
+      /^\/internal\/v1\/tenants\/([^/]+)\/(?:reset-owner-credential|reset-admin-password)$/,
+    );
+    if (credentialMatch && method === 'POST') {
+      return await resetAdminPassword(env, signed, decodeURIComponent(credentialMatch[1]));
+    }
 
     const healthMatch = path.match(/^\/internal\/v1\/tenants\/([^/]+)\/health$/);
     if (healthMatch && method === 'GET') return await tenantHealth(env, signed.requestId, decodeURIComponent(healthMatch[1]));
