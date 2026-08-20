@@ -99,12 +99,30 @@ const state = {
   schoolProfile: { ...DEFAULT_SCHOOL_PROFILE },
   route: 'dashboard',
   modalReturnFocus: null,
+  sidebarReturnFocus: null,
   filters: {},
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const nowIso = () => new Date().toISOString();
+
+function enhanceFormSemantics(root = document) {
+  $$('.field label:not([for])', root).forEach(label => {
+    if (label.querySelector('input, select, textarea')) return;
+    const control = label.parentElement?.querySelector('input, select, textarea');
+    if (!control) return;
+    if (!control.id) control.id = `field-${uid('label')}`;
+    label.htmlFor = control.id;
+  });
+}
+
+function enhanceDecorativeIcons(root = document) {
+  $$('.nav-icon, .stat-icon, .activity-icon, .empty-state__icon, .alert-card__icon', root)
+    .forEach(icon => icon.setAttribute('aria-hidden', 'true'));
+  $$('.icon-button[title]:not([aria-label])', root)
+    .forEach(button => button.setAttribute('aria-label', button.getAttribute('title')));
+}
 
 function normalizeSchoolProfile(value = {}) {
   return {
@@ -453,6 +471,8 @@ function showToast(title, message = '', type = 'info', timeout = 3600) {
   const region = $('#toast-region');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.setAttribute('aria-atomic', 'true');
   toast.innerHTML = `<span aria-hidden="true">${type === 'success' ? '✓' : type === 'error' ? '!' : 'i'}</span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(message)}</small></span><button type="button" aria-label="إغلاق">×</button>`;
   region.append(toast);
   $('button', toast).addEventListener('click', () => toast.remove());
@@ -469,6 +489,8 @@ function openModal({ title, kicker = '', body = '', footer = '', size = '650px',
   $('#modal-layer').hidden = false;
   document.body.style.overflow = 'hidden';
   requestAnimationFrame(() => $('[data-modal-close]', $('#modal'))?.focus());
+  enhanceFormSemantics($('#modal'));
+  enhanceDecorativeIcons($('#modal'));
   if (onOpen) onOpen($('#modal'));
 }
 
@@ -479,7 +501,7 @@ function closeModal() {
 }
 
 function renderEmpty(title, description, actionHtml = '') {
-  return `<div class="empty-state"><span class="empty-state__icon">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p><div>${actionHtml}</div></div>`;
+  return `<div class="empty-state"><span class="empty-state__icon" aria-hidden="true">◇</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p><div>${actionHtml}</div></div>`;
 }
 
 function renderPageHeader(title, description, actions = '') {
@@ -503,7 +525,7 @@ async function buildNavigation() {
     const visible = group.items.filter(item => item.roles.includes(state.user.role)
       && (item.route !== 'finance' || schoolAllows('finance')));
     if (!visible.length) return '';
-    return `<p class="nav-section-label">${escapeHtml(group.section)}</p>${visible.map(item => `<button class="nav-item${state.route === item.route ? ' is-active' : ''}" type="button" data-route="${item.route}"><span class="nav-icon" aria-hidden="true">${item.icon}</span><span>${escapeHtml(item.label)}</span></button>`).join('')}`;
+    return `<p class="nav-section-label">${escapeHtml(group.section)}</p>${visible.map(item => `<button class="nav-item${state.route === item.route ? ' is-active' : ''}" type="button" data-route="${item.route}"${state.route === item.route ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${item.icon}</span><span>${escapeHtml(item.label)}</span></button>`).join('')}`;
   }).join('');
 }
 
@@ -581,19 +603,27 @@ async function navigate(route, { updateHash = true } = {}) {
     $('#view-root').innerHTML = `<div class="page">${renderEmpty('تعذر تحميل الصفحة', error.message || 'حدث خطأ غير متوقع.', '<button class="button button--secondary" data-action="retry-route">إعادة المحاولة</button>')}</div>`;
   } finally {
     $('#page-loading').hidden = true;
+    enhanceFormSemantics($('#view-root'));
+    enhanceDecorativeIcons($('#view-root'));
     $('#main-content').focus({ preventScroll: true });
     await refreshChrome();
   }
 }
 
 function openSidebar() {
+  state.sidebarReturnFocus = document.activeElement;
   $('#sidebar').classList.add('is-open');
   $('#mobile-overlay').classList.add('is-open');
+  $('#menu-button').setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => $('#sidebar-close')?.focus());
 }
 
 function closeSidebar() {
   $('#sidebar').classList.remove('is-open');
   $('#mobile-overlay').classList.remove('is-open');
+  $('#menu-button').setAttribute('aria-expanded', 'false');
+  if (state.sidebarReturnFocus && state.sidebarReturnFocus !== document.body) state.sidebarReturnFocus.focus?.();
+  state.sidebarReturnFocus = null;
 }
 
 async function setupGlobalEvents() {
@@ -675,7 +705,7 @@ async function setupGlobalEvents() {
   $('#user-popover').addEventListener('click', async event => {
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!action) return;
-    $('#user-popover').hidden = true;
+    closeUserPopover();
     if (action === 'logout') await signOut();
     if (action === 'lock') {
       await signOut('locked');
@@ -686,9 +716,20 @@ async function setupGlobalEvents() {
 
   $('#modal-layer').addEventListener('click', event => { if (event.target.matches('[data-modal-close]')) closeModal(); });
   document.addEventListener('keydown', event => {
+    if (event.key === 'Tab' && !$('#modal-layer').hidden) {
+      const focusable = $$('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])', $('#modal'))
+        .filter(element => !element.hidden && element.offsetParent !== null);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+      return;
+    }
     if (event.key === 'Escape') {
       if (!$('#modal-layer').hidden) closeModal();
-      else if (!$('#user-popover').hidden) $('#user-popover').hidden = true;
+      else if (!$('#user-popover').hidden) closeUserPopover();
       else closeSidebar();
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -702,7 +743,7 @@ async function setupGlobalEvents() {
     if (route !== state.route) navigate(route, { updateHash: false });
   });
   document.addEventListener('click', async event => {
-    if (!event.target.closest('#user-popover,#top-user-button,#user-menu-button')) $('#user-popover').hidden = true;
+    if (!event.target.closest('#user-popover,#top-user-button,#user-menu-button')) closeUserPopover();
     const retry = event.target.closest('[data-action="retry-route"]');
     if (retry) navigate(state.route, { updateHash: false });
   });
@@ -711,10 +752,18 @@ async function setupGlobalEvents() {
 function toggleUserPopover(anchor) {
   const popover = $('#user-popover');
   popover.hidden = !popover.hidden;
+  $('#top-user-button').setAttribute('aria-expanded', String(!popover.hidden));
+  $('#user-menu-button').setAttribute('aria-expanded', String(!popover.hidden));
   if (!popover.hidden) {
     const rect = anchor.getBoundingClientRect();
     popover.style.top = `${Math.min(window.innerHeight - popover.offsetHeight - 10, rect.bottom + 8)}px`;
   }
+}
+
+function closeUserPopover() {
+  closeUserPopover();
+  $('#top-user-button').setAttribute('aria-expanded', 'false');
+  $('#user-menu-button').setAttribute('aria-expanded', 'false');
 }
 
 const ROUTE_RENDERERS = {};

@@ -33,7 +33,7 @@
     <div class="auth-panel">
       <div class="auth-card">
         <div class="brand brand--dark">
-          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" width="62" height="62" alt="شعار مدرسة رواد غزة الثانوية">
           <span><strong data-school-name>مدرسة رواد غزة الثانوية</strong><small>نظام الإدارة الذكي</small></span>
         </div>
         <div class="auth-heading">
@@ -81,7 +81,7 @@
     <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
       <div class="sidebar__top">
         <div class="brand">
-          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" alt="شعار مدرسة رواد غزة الثانوية">
+          <img class="brand__logo" data-school-logo src="assets/images/ruwad-gaza-school-logo.jpg" width="52" height="52" alt="شعار مدرسة رواد غزة الثانوية">
           <span><strong data-school-short-name>رواد غزة الثانوية</strong><small>الإدارة الذكية</small></span>
         </div>
         <button class="icon-button sidebar-close" id="sidebar-close" type="button" aria-label="إغلاق القائمة">×</button>
@@ -97,7 +97,7 @@
 
       <div class="sidebar__bottom">
         <div class="local-status"><span></span><div><strong>البيانات محلية</strong><small>آخر حفظ: الآن</small></div></div>
-        <button class="user-mini" id="user-menu-button" type="button">
+        <button class="user-mini" id="user-menu-button" type="button" aria-haspopup="menu" aria-expanded="false">
           <span class="avatar avatar--blue" id="sidebar-avatar">م</span>
           <span><strong id="sidebar-user-name">مستخدم</strong><small id="sidebar-user-role">الدور</small></span>
           <span aria-hidden="true">⋮</span>
@@ -108,7 +108,7 @@
     <div class="app-area">
       <header class="topbar">
         <div class="topbar__start">
-          <button class="icon-button menu-button" id="menu-button" type="button" aria-label="فتح القائمة">☰</button>
+          <button class="icon-button menu-button" id="menu-button" type="button" aria-label="فتح القائمة" aria-controls="sidebar" aria-expanded="false">☰</button>
           <div><p class="breadcrumb" id="breadcrumb">الرئيسية</p><h1 id="page-title">لوحة التحكم</h1></div>
         </div>
         <div class="topbar__actions">
@@ -119,7 +119,7 @@
           </label>
           <button class="sync-chip sync-chip--off" id="sync-chip" type="button" hidden title="حالة المزامنة">جهاز غير مربوط</button>
           <button class="icon-button notification-button" id="notification-button" type="button" aria-label="الإشعارات"><span aria-hidden="true">♧</span><i id="notification-dot"></i></button>
-          <button class="top-user" id="top-user-button" type="button">
+          <button class="top-user" id="top-user-button" type="button" aria-haspopup="menu" aria-expanded="false">
             <span class="avatar avatar--blue" id="top-avatar">م</span>
             <span class="top-user__copy"><strong id="top-user-name">مستخدم</strong><small id="top-user-role">الدور</small></span>
             <span aria-hidden="true">⌄</span>
@@ -134,16 +134,16 @@
     </div>
   </div>
 
-  <div class="popover" id="user-popover" hidden>
+  <div class="popover" id="user-popover" role="menu" hidden>
     <div class="popover__profile"><span class="avatar avatar--blue" id="popover-avatar">م</span><span><strong id="popover-name">مستخدم</strong><small id="popover-username">@user</small></span></div>
-    <button type="button" data-action="profile">الملف الشخصي</button>
-    <button type="button" data-action="lock">قفل الجلسة</button>
-    <button class="danger-text" type="button" data-action="logout">تسجيل الخروج</button>
+    <button type="button" role="menuitem" data-action="profile">الملف الشخصي</button>
+    <button type="button" role="menuitem" data-action="lock">قفل الجلسة</button>
+    <button class="danger-text" type="button" role="menuitem" data-action="logout">تسجيل الخروج</button>
   </div>
 
   <div class="modal-layer" id="modal-layer" hidden>
     <div class="modal-backdrop" data-modal-close></div>
-    <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-body">
       <header class="modal__header"><div><p class="eyebrow" id="modal-kicker"></p><h2 id="modal-title">عنوان</h2></div><button class="icon-button" type="button" data-modal-close aria-label="إغلاق">×</button></header>
       <div class="modal__body" id="modal-body"></div>
       <footer class="modal__footer" id="modal-footer"></footer>
