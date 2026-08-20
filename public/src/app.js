@@ -762,7 +762,23 @@ async function setupGlobalEvents() {
     button.innerHTML = '<span class="spinner" style="width:20px;height:20px;border-width:2px"></span><span>جارٍ التحقق…</span>';
     $('#login-message').textContent = '';
     try {
-      await signIn(username.value.trim(), password.value);
+      try {
+        await signIn(username.value.trim(), password.value);
+      } catch (localError) {
+        // لا حساب محلي بهذا الاسم: قد تكون بيانات مدرسة من لوحة أثر.
+        // نجرّبها على الخادم بدل أن نطلب من المستخدم أن يعرف الفرق بنفسه.
+        const schoolId = targetSchoolId();
+        if (!schoolId) throw localError;
+        $('#login-message').textContent = 'جارٍ التحقق من لوحة أثر…';
+        try {
+          await linkDeviceAndMirrorUser(schoolId, username.value.trim(), password.value);
+        } catch {
+          throw localError;
+        }
+        await signIn(username.value.trim(), password.value);
+        await renderSyncStatus();
+        Sync.start(applyRemote);
+      }
       await showApp();
       showToast('تم تسجيل الدخول', `مرحبًا ${state.user.displayName}`, 'success');
     } catch (error) {
@@ -1031,6 +1047,54 @@ async function applyRemote(payload) {
   });
 }
 
+
+/**
+ * الربط ثم إنشاء حساب محلي مطابق.
+ *
+ * الربط وحده لا يكفي: جلسة التطبيق تُتحقَّق من مخزن `users` المحلي، فبدون
+ * حساب مرآة يبقى الجهاز مربوطًا ولا يستطيع أحد الدخول إليه. نشتق تجزئة
+ * كلمة المرور نفسها محليًا، فيعمل الدخول لاحقًا دون إنترنت أيضًا.
+ *
+ * لا نستورد تجزئة الخادم: هي لا تغادره أصلًا، وهذا مقصود.
+ */
+async function linkDeviceAndMirrorUser(schoolId, username, password) {
+  const session = await Sync.login(schoolId, username, password);
+  const remote = session.user;
+  const derived = await derivePassword(password);
+  const existing = await dbGet('users', remote.id);
+
+  await suspendOutbox(async () => {
+    await dbPut('users', {
+      ...(existing || baseRecord(remote.id)),
+      id: remote.id,
+      username: remote.username,
+      displayName: remote.name || remote.username,
+      role: remote.role,
+      profileId: remote.profile_id || null,
+      passwordHash: derived.hash,
+      passwordSalt: derived.salt,
+      passwordIterations: derived.iterations,
+      failedAttempts: 0,
+      lockedUntil: null,
+      status: 'active',
+      updatedAt: nowIso(),
+      updatedBy: 'athar-link',
+    });
+  });
+
+  await Sync.run(applyRemote);
+  await loadSchoolProfile();
+  return remote;
+}
+
+/**
+ * المدرسة التي يحاول هذا الجهاز الانضمام إليها: من الرابط أولًا، ثم من
+ * ارتباط سابق. يسمح لجهاز مربوط بأن يدخل عليه موظف لأول مرة.
+ */
+function targetSchoolId() {
+  return Sync.schoolIdFromUrl() || Sync.schoolId;
+}
+
 function syncStatusText(status, pending) {
   const labels = {
     synced: pending ? `بانتظار الرفع (${pending})` : 'متزامن',
@@ -1082,12 +1146,16 @@ function openLinkDialog() {
         button.disabled = true;
         message.textContent = 'جارٍ الربط…';
         try {
-          await Sync.login(data.school_id, data.username, data.password);
-          message.textContent = 'تم الربط. جارٍ جلب بيانات المدرسة…';
-          await Sync.run(applyRemote);
+          message.textContent = 'جارٍ الربط وجلب بيانات المدرسة…';
+          await linkDeviceAndMirrorUser(data.school_id, data.username, data.password);
+          // الدخول مباشرة بعد الربط: إعادة التحميل كانت تُرجع المستخدم إلى
+          // شاشة الدخول ليكتب البيانات نفسها مرة ثانية بلا سبب.
+          await signIn(data.username, data.password);
           closeModal();
-          showToast('تم ربط الجهاز', 'بيانات المدرسة الآن على الخادم.', 'success');
-          location.reload();
+          await renderSyncStatus();
+          Sync.start(applyRemote);
+          await showApp();
+          showToast('تم ربط الجهاز', `مرحبًا ${state.user.displayName}`, 'success');
         } catch (error) {
           message.textContent = error.message;
           button.disabled = false;
