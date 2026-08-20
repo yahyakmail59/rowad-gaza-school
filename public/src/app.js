@@ -539,13 +539,7 @@ async function signIn(username, password) {
   let matches = await dbIndexAll('users', 'username', typedUsername);
   if (!matches.length && typedUsername !== typedUsername.toLowerCase()) matches = await dbIndexAll('users', 'username', typedUsername.toLowerCase());
   const user = matches[0];
-  // الرسالة موحّدة عمدًا فلا تكشف أي الحقلين كان خاطئًا، لكنها تذكّر بالمسار
-  // الآخر: من يحمل بيانات لوحة أثر يحتاج الربط لا هذا النموذج.
-  const genericError = new Error(
-    Sync.isLinked()
-      ? 'بيانات الدخول غير صحيحة. تحقق وحاول مرة أخرى.'
-      : 'بيانات الدخول غير صحيحة. إن كانت بيانات مدرسة من لوحة أثر فاربط الجهاز أولًا.',
-  );
+  const genericError = new Error('بيانات الدخول غير صحيحة. تحقق وحاول مرة أخرى.');
   if (!user || user.status !== 'active') throw genericError;
   if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) throw genericError;
   const ok = await verifyPassword(password, user);
@@ -685,13 +679,10 @@ function showAuth() {
   $('#auth-screen').hidden = false;
   $('#app-shell').hidden = true;
   $('#user-popover').hidden = true;
-  // شاشة الدخول تتحقق من حسابات هذا الجهاز وحده. من يحمل بيانات مدرسة من
-  // لوحة أثر سيكتبها هنا ويُرفض، فيجب أن يرى الطريق الصحيح أمامه لا أن يخمّنه.
-  const banner = $('#link-banner');
-  if (banner) {
-    banner.hidden = Sync.isLinked();
-    $('#auth-link-button')?.addEventListener('click', openLinkDialog, { once: true });
-  }
+  // رمز المدرسة يُطلب فقط حين لا يعرفه الجهاز: غير مربوط ولا رمز في الرابط.
+  // في غير ذلك يبقى النموذج حقلين كما كان.
+  const codeField = $('#school-code-field');
+  if (codeField) codeField.hidden = Sync.isLinked() || Boolean(Sync.schoolIdFromUrl());
   setTimeout(() => $('#username')?.focus(), 20);
 }
 
@@ -768,7 +759,16 @@ async function setupGlobalEvents() {
         // لا حساب محلي بهذا الاسم: قد تكون بيانات مدرسة من لوحة أثر.
         // نجرّبها على الخادم بدل أن نطلب من المستخدم أن يعرف الفرق بنفسه.
         const schoolId = targetSchoolId();
-        if (!schoolId) throw localError;
+        if (!schoolId) {
+          // لا حساب محلي ولا رمز مدرسة: نطلب الرمز بدل رفض المستخدم بلا مخرج.
+          const codeField = $('#school-code-field');
+          if (codeField?.hidden) {
+            codeField.hidden = false;
+            $('#school-code')?.focus();
+            throw new Error('لم نجد هذا الحساب على الجهاز. أدخل رمز المدرسة من لوحة أثر ثم أعد المحاولة.');
+          }
+          throw localError;
+        }
         $('#login-message').textContent = 'جارٍ التحقق من لوحة أثر…';
         try {
           await linkDeviceAndMirrorUser(schoolId, username.value.trim(), password.value);
@@ -1092,7 +1092,7 @@ async function linkDeviceAndMirrorUser(schoolId, username, password) {
  * ارتباط سابق. يسمح لجهاز مربوط بأن يدخل عليه موظف لأول مرة.
  */
 function targetSchoolId() {
-  return Sync.schoolIdFromUrl() || Sync.schoolId;
+  return Sync.schoolIdFromUrl() || Sync.schoolId || ($('#school-code')?.value || '').trim();
 }
 
 function syncStatusText(status, pending) {

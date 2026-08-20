@@ -60,18 +60,16 @@
             </div>
             <small class="field-error" id="password-error"></small>
           </div>
+          <div class="field" id="school-code-field" hidden>
+            <label for="school-code">رمز المدرسة</label>
+            <input id="school-code" name="school-code" dir="ltr" autocomplete="off" placeholder="ATH_...">
+            <small class="field-error" id="school-code-error"></small>
+          </div>
           <button class="button button--primary button--large" id="login-submit" type="submit">
             <span>دخول إلى النظام</span><span aria-hidden="true">←</span>
           </button>
           <p class="form-message" id="login-message" role="alert" aria-live="polite"></p>
         </form>
-
-        <div class="link-banner" id="link-banner" hidden>
-          <strong>هذا الجهاز غير مربوط بلوحة أثر</strong>
-          <p>حقول الدخول أعلاه تخص حسابات هذا الجهاز وحده. إن كانت لديك بيانات مدرسة
-            من لوحة أثر (رمز يبدأ بـ<code dir="ltr">ATH_</code>) فاربط الجهاز أولًا.</p>
-          <button type="button" class="button button--primary" id="auth-link-button">ربط الجهاز بمدرسة أثر</button>
-        </div>
 
         <div class="demo-accounts" id="demo-accounts" hidden>
           <p><strong>حسابات العرض</strong> — كلمة المرور للجميع: <code>Salam@123</code></p>

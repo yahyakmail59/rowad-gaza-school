@@ -498,16 +498,3 @@ a { color: inherit; }
 @media (max-width: 720px) {
   .sync-chip { padding: 5px 9px; font-size: 11px; }
 }
-
-/* ---------- لافتة ربط الجهاز ---------- */
-/* تظهر في شاشة الدخول لأن بيانات لوحة أثر لا تعمل في نموذج الدخول المحلي. */
-.link-banner {
-  margin-block-start: 18px;
-  padding: 16px;
-  border: 1px solid var(--brand, #155eef);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--brand, #155eef) 6%, transparent);
-}
-.link-banner strong { display: block; margin-block-end: 6px; }
-.link-banner p { margin: 0 0 12px; font-size: 13px; line-height: 1.75; opacity: .85; }
-.link-banner code { direction: ltr; unicode-bidi: isolate; }
