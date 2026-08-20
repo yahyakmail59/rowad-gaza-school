@@ -260,6 +260,13 @@ try {
     request_id: planRequestId, tenant_id: alpha.tenantId, plan_code: 'basic',
   }), 'downgrade to basic');
 
+  // الواجهة تقرأ الباقة من settings/schoolProfile لا من صف المدرسة. تحديث
+  // الصف وحده يرقّي الاشتراك على الخادم بينما تبقى الشاشات على القديم.
+  const planSession = await login(alpha.credentials.school_id, 'admin', alpha.credentials.admin_password);
+  const planProfile = (await pullAll(planSession.payload.token, 'settings'))
+    .stores.settings.find((r) => r.id === 'schoolProfile').doc.value;
+  assert.equal(planProfile.plan, 'basic', 'the plan change must reach the record the app reads');
+
   const basicSession = await login(alpha.credentials.school_id, 'admin', alpha.credentials.admin_password);
   const basicToken = basicSession.payload.token;
   const basicPull = await pullAll(basicToken);

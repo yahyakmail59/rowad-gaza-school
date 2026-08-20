@@ -422,11 +422,31 @@ async function changeTenantPlan(env, signed, tenantIdFromPath) {
       ok: true, request_id: signed.requestId, tenant_id: tenantId,
       external_tenant_id: school.school_id, plan_code: planCode,
     };
+    // الواجهة تقرأ الباقة من `settings/schoolProfile` لا من صف المدرسة، فتحديث
+    // الصف وحده يترقّي الاشتراك على الخادم بينما تبقى الشاشات على الباقة القديمة.
+    const row = await db.prepare(
+      "SELECT doc_json FROM records WHERE school_id = ? AND store = 'settings' AND id = 'schoolProfile'",
+    ).bind(school.school_id).first();
+    let doc = { id: 'schoolProfile', key: 'schoolProfile', value: {} };
+    if (row) {
+      try {
+        doc = JSON.parse(row.doc_json);
+      } catch { /* مستند تالف يُعاد بناؤه */ }
+    }
+    doc.value = { ...(doc.value || {}), plan: planCode };
+
     // النزول من full إلى basic يمنع الوصول ولا يحذف صفًا واحدًا.
     // الترقية لاحقًا تعيد الظهور كما كانت.
     await db.batch([
       db.prepare('UPDATE schools SET plan_code = ?, updated_at = ? WHERE control_tenant_id = ?')
         .bind(planCode, now, tenantId),
+      db.prepare(
+        `INSERT INTO records (school_id, store, id, doc_json, deleted, version, updated_at, updated_by)
+         VALUES (?, 'settings', 'schoolProfile', ?, 0, 1, ?, 'athar')
+         ON CONFLICT(school_id, store, id) DO UPDATE SET
+           doc_json = excluded.doc_json, deleted = 0,
+           version = records.version + 1, updated_at = excluded.updated_at, updated_by = 'athar'`,
+      ).bind(school.school_id, JSON.stringify(doc), now),
       db.prepare(
         `UPDATE adapter_requests SET status = 'succeeded', response_json = ?, error_code = '', completed_at = ?
          WHERE request_id = ?`,
