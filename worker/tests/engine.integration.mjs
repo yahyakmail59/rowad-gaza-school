@@ -440,6 +440,43 @@ try {
   }
   assert.equal(usersPayload.stores.users, undefined, 'users are not a syncable record store');
 
+  /* ---------- جهازان على المدرسة نفسها ---------- */
+
+  // هذا ما كان مستحيلاً قبل المحرك: مدرسة تعيش على أكثر من جهاز.
+  const deviceA = (await login(beta.credentials.school_id, 'admin', beta.credentials.admin_password)).payload.token;
+  const deviceB = (await login(beta.credentials.school_id, 'admin', beta.credentials.admin_password)).payload.token;
+
+  const bBase = await pullAll(deviceB, 'students');
+  const bCursor = bBase.cursor;
+
+  await authed(deviceA, '/api/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      changes: [{ store: 'students', id: 'student-7', doc: { id: 'student-7', fullName: 'كتبه الجهاز أ' } }],
+    }),
+  });
+
+  const bDelta = await (await authed(deviceB, `/api/pull?since=${bCursor}&stores=students`)).json();
+  assert.equal(
+    bDelta.stores.students.find((r) => r.id === 'student-7').doc.fullName,
+    'كتبه الجهاز أ',
+    'a write on one device must reach the other',
+  );
+
+  // الجهاز الذي كتب لا يحتاج أن يسحب تعديله مرة أخرى ليصل إلى نفس النتيجة.
+  const aState = await pullAll(deviceA, 'students');
+  assert.equal(aState.stores.students.find((r) => r.id === 'student-7').doc.fullName, 'كتبه الجهاز أ');
+
+  // الحذف ينتقل كعلَم، وإلا بقي السجل ظاهرًا على الجهاز الآخر إلى الأبد.
+  await authed(deviceA, '/api/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ changes: [{ store: 'students', id: 'student-7', deleted: true }] }),
+  });
+  const bAfterDelete = await (await authed(deviceB, `/api/pull?since=${bCursor}&stores=students`)).json();
+  assert.equal(bAfterDelete.stores.students.find((r) => r.id === 'student-7').deleted, true);
+
   console.log('school-engine-integration-ok');
 } finally {
   await miniflare.dispose();

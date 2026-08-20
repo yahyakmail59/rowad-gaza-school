@@ -1,4 +1,6 @@
-const APP_VERSION = '1.5.0';
+import { Sync } from './sync.js';
+
+const APP_VERSION = '2.0.0';
 const DB_NAME = 'AlSalamSchoolDB';
 const DB_VERSION = 1;
 const DEMO_PASSWORD = 'Salam@123';
@@ -239,10 +241,29 @@ async function dbIndexAll(storeName, indexName, value) {
   return requestPromise(tx.objectStore(storeName).index(indexName).getAll(value));
 }
 
+/**
+ * كل كتابة محلية تُسجَّل في صندوق الصادر من هنا، لا من مواضع الاستدعاء.
+ * لو تُرك التسجيل لكل شاشة لنسيته واحدة يومًا وضاع تعديل دون أن يلاحظ أحد.
+ * يُعطَّل أثناء تطبيق تغييرات قادمة من الخادم، وإلا أعدنا إرسالها إليه.
+ */
+let outboxSuspended = false;
+
+function suspendOutbox(work) {
+  outboxSuspended = true;
+  return Promise.resolve(work()).finally(() => { outboxSuspended = false; });
+}
+
+function trackChange(storeName, record, deleted = false) {
+  if (outboxSuspended) return;
+  const id = deleted ? record : record?.id;
+  Sync.queue(storeName, id, deleted ? null : record, deleted).catch(() => {});
+}
+
 async function dbPut(storeName, record) {
   const tx = state.db.transaction(storeName, 'readwrite');
   tx.objectStore(storeName).put(record);
   await transactionDone(tx);
+  trackChange(storeName, record);
   return record;
 }
 
@@ -252,6 +273,7 @@ async function dbBulkPut(storeName, records) {
   const store = tx.objectStore(storeName);
   for (const record of records) store.put(record);
   await transactionDone(tx);
+  for (const record of records) trackChange(storeName, record);
 }
 
 async function dbCount(storeName) {
@@ -259,9 +281,38 @@ async function dbCount(storeName) {
   return requestPromise(tx.objectStore(storeName).count());
 }
 
+/**
+ * المخازن تُغلَّف بوسيط يمرّر العملية إلى المخزن الحقيقي ويسجّلها.
+ * بهذا تبقى الشاشات مكتوبة كما هي، ولا يمكن لكتابة أن تفلت من المزامنة.
+ */
+function trackedStore(storeName, store) {
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === 'put' || prop === 'add') {
+        return (record, ...rest) => {
+          const result = target[prop](record, ...rest);
+          trackChange(storeName, record);
+          return result;
+        };
+      }
+      if (prop === 'delete') {
+        return (key, ...rest) => {
+          const result = target.delete(key, ...rest);
+          trackChange(storeName, key, true);
+          return result;
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 async function atomicWrite(storeNames, work) {
   const tx = state.db.transaction(storeNames, 'readwrite');
-  const stores = Object.fromEntries(storeNames.map(name => [name, tx.objectStore(name)]));
+  const stores = Object.fromEntries(
+    storeNames.map(name => [name, trackedStore(name, tx.objectStore(name))]),
+  );
   await work(stores, tx);
   await transactionDone(tx);
 }
@@ -859,10 +910,19 @@ function showFirstRun() {
   $('#auth-screen').hidden = false;
   $('#app-shell').hidden = true;
   const host = document.querySelector('.auth-form') || document.querySelector('.auth-screen');
+  const invited = Boolean(Sync.schoolIdFromUrl());
   host.innerHTML = `
+    ${invited ? `<div class="auth-card" style="margin-block-end:16px">
+      <h1>انضمام إلى مدرسة قائمة</h1>
+      <p>هذا الرابط يخص مدرسة مسجّلة في لوحة أثر. اربط الجهاز بها لتصله بياناتها،
+        بدل إنشاء مدرسة جديدة على هذا الجهاز وحده.</p>
+      <button type="button" class="button button--primary" id="first-run-link">ربط الجهاز بالمدرسة</button>
+    </div>` : ''}
     <form id="first-run" class="auth-card" autocomplete="off">
-      <h1>تجهيز النظام</h1>
-      <p>هذه أول مرة يُفتح فيها النظام على هذا الجهاز. أنشئ حساب المدير.</p>
+      <h1>${invited ? 'أو: تجهيز مدرسة جديدة' : 'تجهيز النظام'}</h1>
+      <p>${invited
+        ? 'يُنشئ مدرسة على هذا الجهاز وحده، دون ارتباط بلوحة أثر.'
+        : 'هذه أول مرة يُفتح فيها النظام على هذا الجهاز. أنشئ حساب المدير.'}</p>
       <div class="field"><label>اسم المدرسة</label>
         <input name="schoolName" required maxlength="80" placeholder="مدرسة ..."></div>
       <div class="field"><label>الباقة</label>
@@ -889,6 +949,8 @@ function showFirstRun() {
         البيانات تُحفظ على هذا المتصفح وحده. احتفظ بنسخة احتياطية دوريًا من الإعدادات.
       </p>
     </form>`;
+
+  $('#first-run-link')?.addEventListener('click', openLinkDialog);
 
   $('#first-run').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -932,6 +994,127 @@ function isDemoMode() {
   return location.hostname.split('.')[0].startsWith('demo');
 }
 
+
+/* ==================== الربط بلوحة أثر ==================== */
+
+/**
+ * تطبيق ما وصل من الخادم على القاعدة المحلية.
+ * يُنفَّذ داخل `suspendOutbox` وإلا عاد كل سجل مسحوب إلى صندوق الصادر
+ * فأُعيد رفعه إلى الخادم في حلقة لا تنتهي.
+ */
+async function applyRemote(payload) {
+  await suspendOutbox(async () => {
+    for (const [storeName, rows] of Object.entries(payload.stores || {})) {
+      if (!SCHEMA[storeName]) continue;
+      const tx = state.db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      for (const row of rows) {
+        // الحذف يصل كعلَم لا باختفاء صامت، وإلا بقي السجل على هذا الجهاز.
+        if (row.deleted) store.delete(row.id);
+        else store.put({ ...row.doc, id: row.id });
+      }
+      await transactionDone(tx);
+    }
+  });
+}
+
+function syncStatusText(status, pending) {
+  const labels = {
+    synced: pending ? `بانتظار الرفع (${pending})` : 'متزامن',
+    syncing: 'جارٍ المزامنة…',
+    offline: navigator.onLine ? 'غير مربوط' : 'بلا إنترنت',
+    error: 'تعذرت المزامنة',
+  };
+  return labels[status] || status;
+}
+
+async function renderSyncStatus() {
+  const chip = document.getElementById('sync-chip');
+  if (!chip) return;
+  if (!Sync.isLinked()) {
+    chip.textContent = 'جهاز غير مربوط';
+    chip.className = 'sync-chip sync-chip--off';
+    chip.hidden = false;
+    return;
+  }
+  const pending = await Sync.pendingCount();
+  chip.textContent = syncStatusText(Sync.status, pending);
+  chip.className = `sync-chip sync-chip--${Sync.status}`;
+  chip.title = Sync.lastError || '';
+  chip.hidden = false;
+}
+
+function openLinkDialog() {
+  const prefill = Sync.schoolIdFromUrl();
+  openModal({
+    title: 'ربط الجهاز بلوحة أثر',
+    kicker: 'المزامنة السحابية',
+    body: `<form id="link-form" class="form-grid">
+        <div class="field field--full"><label>رمز المدرسة *</label>
+          <input name="school_id" required dir="ltr" value="${escapeHtml(prefill)}" placeholder="ATH_..."></div>
+        <div class="field"><label>اسم المستخدم *</label><input name="username" required dir="ltr" value="admin"></div>
+        <div class="field"><label>كلمة المرور *</label><input name="password" type="password" required></div>
+        <p class="form-message field--full">بعد الربط تصبح بيانات المدرسة على الخادم، ويعمل النظام على أكثر من جهاز.
+          الجهاز يواصل العمل دون إنترنت ويزامن عند عودته.</p>
+        <p class="form-message field--full" id="link-message"></p>
+      </form>`,
+    footer: '<button class="button button--primary" id="confirm-link">ربط الجهاز</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    onOpen: () => {
+      document.getElementById('confirm-link').addEventListener('click', async () => {
+        const form = document.getElementById('link-form');
+        if (!form.reportValidity()) return;
+        const data = Object.fromEntries(new FormData(form));
+        const message = document.getElementById('link-message');
+        const button = document.getElementById('confirm-link');
+        button.disabled = true;
+        message.textContent = 'جارٍ الربط…';
+        try {
+          await Sync.login(data.school_id, data.username, data.password);
+          message.textContent = 'تم الربط. جارٍ جلب بيانات المدرسة…';
+          await Sync.run(applyRemote);
+          closeModal();
+          showToast('تم ربط الجهاز', 'بيانات المدرسة الآن على الخادم.', 'success');
+          location.reload();
+        } catch (error) {
+          message.textContent = error.message;
+          button.disabled = false;
+        }
+      });
+    },
+  });
+}
+
+function openUnlinkDialog() {
+  openModal({
+    title: 'فك ربط الجهاز',
+    kicker: 'المزامنة السحابية',
+    body: '<div class="confirm-box">سيتوقف هذا الجهاز عن المزامنة. البيانات على الخادم لا تُحذف، والنسخة المحلية تبقى كما هي. أي تعديل لم يُرفع بعد سيضيع.</div>',
+    footer: '<button class="button button--danger" id="confirm-unlink">فك الربط</button><button class="button button--secondary" data-modal-close>إلغاء</button>',
+    onOpen: () => {
+      document.getElementById('confirm-unlink').addEventListener('click', async () => {
+        await Sync.logout();
+        closeModal();
+        showToast('فُكّ ربط الجهاز', 'توقفت المزامنة مع لوحة أثر.', 'info');
+        renderSyncStatus();
+      });
+    },
+  });
+}
+
+async function startSync() {
+  Sync.onChange(() => renderSyncStatus());
+  const chip = document.getElementById('sync-chip');
+  if (chip) {
+    chip.addEventListener('click', () => {
+      if (!Sync.isLinked()) return openLinkDialog();
+      if (Sync.status === 'syncing') return;
+      Sync.run(applyRemote).catch((error) => showToast('تعذرت المزامنة', error.message, 'error'));
+    });
+  }
+  await renderSyncStatus();
+  if (Sync.isLinked()) Sync.start(applyRemote);
+}
+
 async function bootstrap() {
   $('#app-version').textContent = APP_VERSION;
   try {
@@ -944,6 +1127,9 @@ async function bootstrap() {
     const users = await dbGetAll('users');
     if (!users.length) {
       await setupGlobalEvents();
+      // المزامنة تبدأ قبل الخروج المبكر: جهاز جديد لمدرسة قائمة يجب أن يجد
+      // طريقًا للانضمام إليها، لا أن يُجبر على إنشاء مدرسة محلية جديدة.
+      await startSync();
       showFirstRun();
       return;
     }
@@ -951,6 +1137,7 @@ async function bootstrap() {
     await ensureBrandIdentity();
     await loadSchoolProfile();
     await setupGlobalEvents();
+    await startSync();
     const user = await restoreSession();
     if (user) await showApp(); else showAuth();
   } catch (error) {

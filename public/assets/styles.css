@@ -475,3 +475,26 @@ a { color: inherit; }
   body.certificate-printing .modal__body { max-height: none; overflow: visible; padding: 0; }
   body.certificate-printing .certificate-sheet { min-height: 95vh; border-color: #067647; break-inside: avoid; }
 }
+
+/* ---------- مؤشر المزامنة ---------- */
+/* اللون وحده لا يكفي: النص يقول الحالة صراحةً لمن لا يميّز الألوان. */
+.sync-chip {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sync-chip--off { color: var(--muted, #6b7280); }
+.sync-chip--synced { color: #067647; }
+.sync-chip--syncing { color: #b54708; }
+.sync-chip--error { color: #b42318; }
+.sync-chip:hover { filter: brightness(1.15); }
+
+@media (max-width: 720px) {
+  .sync-chip { padding: 5px 9px; font-size: 11px; }
+}
