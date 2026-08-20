@@ -751,17 +751,30 @@ async function setupGlobalEvents() {
 
 function toggleUserPopover(anchor) {
   const popover = $('#user-popover');
-  popover.hidden = !popover.hidden;
+  const shouldOpen = popover.hidden;
+  popover.hidden = !shouldOpen;
   $('#top-user-button').setAttribute('aria-expanded', String(!popover.hidden));
   $('#user-menu-button').setAttribute('aria-expanded', String(!popover.hidden));
-  if (!popover.hidden) {
+  if (shouldOpen) {
     const rect = anchor.getBoundingClientRect();
-    popover.style.top = `${Math.min(window.innerHeight - popover.offsetHeight - 10, rect.bottom + 8)}px`;
+    const margin = 10;
+    const gap = 8;
+    const left = Math.min(
+      Math.max(margin, rect.right - popover.offsetWidth),
+      window.innerWidth - popover.offsetWidth - margin,
+    );
+    const top = Math.min(
+      Math.max(margin, rect.bottom + gap),
+      window.innerHeight - popover.offsetHeight - margin,
+    );
+    popover.style.left = `${left}px`;
+    popover.style.right = 'auto';
+    popover.style.top = `${top}px`;
   }
 }
 
 function closeUserPopover() {
-  closeUserPopover();
+  $('#user-popover').hidden = true;
   $('#top-user-button').setAttribute('aria-expanded', 'false');
   $('#user-menu-button').setAttribute('aria-expanded', 'false');
 }

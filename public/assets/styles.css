@@ -306,8 +306,8 @@ a { color: inherit; }
 .spinner { width: 34px; height: 34px; border: 3px solid var(--blue-100); border-top-color: var(--blue-600); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.popover { position: fixed; z-index: 100; top: 73px; inset-inline-end: 22px; width: 220px; padding: 7px; background: #fff; border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--shadow-lg); }
-.popover::before { content: ""; position: absolute; top: -6px; inset-inline-end: 25px; width: 11px; height: 11px; background: #fff; border-top: 1px solid var(--line); border-inline-start: 1px solid var(--line); transform: rotate(45deg); }
+.popover { position: fixed; z-index: 100; top: 73px; inset-inline-start: auto; inset-inline-end: auto; width: 220px; padding: 7px; background: #fff; border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--shadow-lg); }
+.popover::before { content: ""; position: absolute; top: -6px; right: 25px; width: 11px; height: 11px; background: #fff; border-top: 1px solid var(--line); border-left: 1px solid var(--line); transform: rotate(45deg); }
 .popover__profile { display: flex; align-items: center; gap: 9px; margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--line); }
 .popover__profile > span:last-child { display: grid; }
 .popover__profile strong { font-size: var(--text-sm); }
