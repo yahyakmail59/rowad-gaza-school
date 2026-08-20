@@ -3,7 +3,6 @@ import { Sync } from './sync.js';
 const APP_VERSION = '2.0.0';
 const DB_NAME = 'AlSalamSchoolDB';
 const DB_VERSION = 1;
-const DEMO_PASSWORD = 'Salam@123';
 const SCHOOL_NAME = 'مدرسة رواد غزة الثانوية';
 const SCHOOL_SHORT_NAME = 'رواد غزة الثانوية';
 const SCHOOL_LOGO = 'assets/images/ruwad-gaza-school-logo.jpg';
@@ -359,162 +358,6 @@ function baseRecord(id, extra = {}) {
   return { id, createdAt: time, createdBy: 'system', updatedAt: time, updatedBy: 'system', status: 'active', archivedAt: null, archivedBy: null, ...extra };
 }
 
-async function ensureSeedData() {
-  const existing = (await dbIndexAll('settings', 'key', 'seedVersion'))[0];
-  if (existing?.value === 1) return;
-
-  const password = await derivePassword(DEMO_PASSWORD);
-  const year = baseRecord('year-2026', { name: '2026 / 2027', startsOn: '2026-08-20', endsOn: '2027-06-15', isActive: true, terms: [
-    { id: 'term-1', name: 'الفصل الأول', startsOn: '2026-08-20', endsOn: '2027-01-15' },
-    { id: 'term-2', name: 'الفصل الثاني', startsOn: '2027-01-25', endsOn: '2027-06-15' },
-  ]});
-  const grades = [
-    baseRecord('grade-7', { code: 'G07', name: 'الصف السابع', stage: 'المرحلة الأساسية العليا', order: 7 }),
-    baseRecord('grade-8', { code: 'G08', name: 'الصف الثامن', stage: 'المرحلة الأساسية العليا', order: 8 }),
-    baseRecord('grade-9', { code: 'G09', name: 'الصف التاسع', stage: 'المرحلة الأساسية العليا', order: 9 }),
-  ];
-  const teachers = [
-    baseRecord('teacher-1', { employeeNo: 'T-1001', fullName: 'أحمد الخطيب', fullNameNormalized: normalizeArabic('أحمد الخطيب'), phone: '0599001001', email: 'ahmad@alsalam.local', specialty: 'الرياضيات', hiredOn: '2020-08-15' }),
-    baseRecord('teacher-2', { employeeNo: 'T-1002', fullName: 'سارة منصور', fullNameNormalized: normalizeArabic('سارة منصور'), phone: '0599001002', email: 'sara@alsalam.local', specialty: 'اللغة العربية', hiredOn: '2019-08-20' }),
-    baseRecord('teacher-3', { employeeNo: 'T-1003', fullName: 'خالد سالم', fullNameNormalized: normalizeArabic('خالد سالم'), phone: '0599001003', email: 'khaled@alsalam.local', specialty: 'العلوم', hiredOn: '2021-01-10' }),
-    baseRecord('teacher-4', { employeeNo: 'T-1004', fullName: 'ليان عودة', fullNameNormalized: normalizeArabic('ليان عودة'), phone: '0599001004', email: 'layan@alsalam.local', specialty: 'اللغة الإنجليزية', hiredOn: '2022-08-15' }),
-  ];
-  const sections = [
-    baseRecord('section-7a', { academicYearId: year.id, gradeLevelId: 'grade-7', name: 'السابع أ', capacity: 30, homeroomTeacherId: 'teacher-1', room: 'A-07' }),
-    baseRecord('section-7b', { academicYearId: year.id, gradeLevelId: 'grade-7', name: 'السابع ب', capacity: 30, homeroomTeacherId: 'teacher-2', room: 'B-07' }),
-    baseRecord('section-8a', { academicYearId: year.id, gradeLevelId: 'grade-8', name: 'الثامن أ', capacity: 28, homeroomTeacherId: 'teacher-3', room: 'A-08' }),
-    baseRecord('section-9a', { academicYearId: year.id, gradeLevelId: 'grade-9', name: 'التاسع أ', capacity: 28, homeroomTeacherId: 'teacher-4', room: 'A-09' }),
-  ];
-  const subjects = [
-    baseRecord('subject-math', { code: 'MATH', name: 'الرياضيات', gradeLevelIds: grades.map(g => g.id), maxScore: 100, passScore: 50, color: '#155EEF' }),
-    baseRecord('subject-arabic', { code: 'ARAB', name: 'اللغة العربية', gradeLevelIds: grades.map(g => g.id), maxScore: 100, passScore: 50, color: '#079455' }),
-    baseRecord('subject-science', { code: 'SCI', name: 'العلوم', gradeLevelIds: grades.map(g => g.id), maxScore: 100, passScore: 50, color: '#D92D20' }),
-    baseRecord('subject-english', { code: 'ENG', name: 'اللغة الإنجليزية', gradeLevelIds: grades.map(g => g.id), maxScore: 100, passScore: 50, color: '#7F56D9' }),
-    baseRecord('subject-social', { code: 'SOC', name: 'الدراسات الاجتماعية', gradeLevelIds: grades.map(g => g.id), maxScore: 100, passScore: 50, color: '#F79009' }),
-  ];
-
-  const firstNames = ['يوسف', 'مريم', 'عمر', 'لينا', 'محمد', 'نور', 'آدم', 'جنى', 'رامي', 'سلمى', 'يزن', 'تالا', 'أيهم', 'رنا', 'مالك', 'شهد', 'كرم', 'دانا', 'سامر', 'فرح', 'أنس', 'ريم', 'سيف', 'هبة'];
-  const lastNames = ['حمدان', 'النجار', 'سالم', 'عودة', 'شاهين', 'أبو عيشة', 'منصور', 'الخطيب'];
-  const students = firstNames.map((name, index) => baseRecord(`student-${index + 1}`, {
-    admissionNo: `AS-${String(2026001 + index)}`,
-    fullName: `${name} ${lastNames[index % lastNames.length]}`,
-    fullNameNormalized: normalizeArabic(`${name} ${lastNames[index % lastNames.length]}`),
-    gender: index % 2 ? 'female' : 'male',
-    birthDate: `${2012 + Math.floor(index / 16)}-${String((index % 9) + 1).padStart(2, '0')}-${String((index % 24) + 1).padStart(2, '0')}`,
-    phone: `05991${String(index).padStart(5, '0')}`,
-    address: ['رام الله', 'البيرة', 'بيتونيا', 'بيرزيت'][index % 4],
-  }));
-  const guardians = Array.from({ length: 12 }, (_, index) => baseRecord(`guardian-${index + 1}`, {
-    fullName: `${index % 2 ? 'أم' : 'أب'} ${students[index * 2]?.fullName || students[index].fullName}`,
-    fullNameNormalized: normalizeArabic(`${index % 2 ? 'أم' : 'أب'} ${students[index * 2]?.fullName || students[index].fullName}`),
-    phone: `05988${String(index).padStart(5, '0')}`,
-    email: `guardian${index + 1}@example.local`,
-    relation: index % 2 ? 'الأم' : 'الأب',
-    address: ['رام الله', 'البيرة', 'بيتونيا'][index % 3],
-  }));
-  const studentGuardians = students.map((student, index) => baseRecord(`sg-${index + 1}`, {
-    studentId: student.id, guardianId: `guardian-${Math.floor(index / 2) + 1}`, relation: index % 2 ? 'الأم' : 'الأب', isPrimary: index % 2 === 0, canCollect: true, receivesNotices: true,
-  }));
-  const enrollments = students.map((student, index) => baseRecord(`enrollment-${index + 1}`, {
-    studentId: student.id, academicYearId: year.id, sectionId: sections[Math.floor(index / 6) % sections.length].id, enrolledOn: '2026-08-20', rollNo: (index % 6) + 1,
-  }));
-  const assignments = [
-    ['assignment-1','teacher-1','subject-math','section-7a'], ['assignment-2','teacher-1','subject-math','section-7b'],
-    ['assignment-3','teacher-2','subject-arabic','section-7a'], ['assignment-4','teacher-2','subject-arabic','section-7b'],
-    ['assignment-5','teacher-3','subject-science','section-8a'], ['assignment-6','teacher-4','subject-english','section-9a'],
-    ['assignment-7','teacher-3','subject-science','section-7a'], ['assignment-8','teacher-4','subject-english','section-7a'],
-  ].map(([id, teacherId, subjectId, sectionId]) => baseRecord(id, { academicYearId: year.id, termId: 'term-1', teacherId, subjectId, sectionId, startsOn: year.startsOn, endsOn: year.endsOn }));
-
-  const dayNames = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس'];
-  const timetable = [];
-  for (let day = 0; day < 5; day += 1) {
-    for (let period = 1; period <= 4; period += 1) {
-      const assignment = assignments[(day * 4 + period - 1) % assignments.length];
-      timetable.push(baseRecord(`slot-${day + 1}-${period}`, {
-        academicYearId: year.id, termId: 'term-1', dayOfWeek: day + 1, dayName: dayNames[day], periodNo: period,
-        startsAt: `${String(7 + period).padStart(2, '0')}:00`, endsAt: `${String(7 + period).padStart(2, '0')}:45`,
-        sectionId: assignment.sectionId, subjectId: assignment.subjectId, teacherId: assignment.teacherId,
-        roomId: sections.find(s => s.id === assignment.sectionId)?.room, status: 'published', publishedAt: nowIso(),
-      }));
-    }
-  }
-
-  const attendanceSessions = [];
-  const attendanceRecords = [];
-  for (let offset = 12; offset >= 0; offset -= 1) {
-    const date = new Date(); date.setDate(date.getDate() - offset);
-    if ([5, 6].includes(date.getDay())) continue;
-    for (const section of sections) {
-      const sessionId = `attendance-${section.id}-${date.toISOString().slice(0, 10)}`;
-      attendanceSessions.push(baseRecord(sessionId, { date: date.toISOString().slice(0, 10), sectionId: section.id, timetableSlotId: null, mode: 'daily', status: 'closed', openedAt: date.toISOString(), closedAt: date.toISOString(), closedBy: 'user-admin' }));
-      const sectionEnrollments = enrollments.filter(e => e.sectionId === section.id);
-      for (const enrollment of sectionEnrollments) {
-        const n = Number(enrollment.studentId.split('-')[1]);
-        const attStatus = (n + offset) % 13 === 0 ? 'absent' : (n + offset) % 9 === 0 ? 'late' : 'present';
-        attendanceRecords.push(baseRecord(`ar-${sessionId}-${enrollment.studentId}`, { sessionId, studentId: enrollment.studentId, status: attStatus, lateMinutes: attStatus === 'late' ? 10 : 0, reasonCode: null, note: '' }));
-      }
-    }
-  }
-
-  const assessments = assignments.slice(0, 6).map((assignment, index) => baseRecord(`assessment-${index + 1}`, {
-    academicYearId: year.id, termId: 'term-1', sectionId: assignment.sectionId, subjectId: assignment.subjectId, teacherId: assignment.teacherId,
-    name: index % 2 ? 'واجب الوحدة الأولى' : 'اختبار الشهر الأول', type: index % 2 ? 'assignment' : 'exam', date: '2026-09-25', maxScore: index % 2 ? 20 : 40,
-    weightBasisPoints: index % 2 ? 2000 : 4000, status: 'published', submittedAt: nowIso(), approvedAt: nowIso(), publishedAt: nowIso(),
-  }));
-  const gradeEntries = [];
-  for (const assessment of assessments) {
-    const sectionStudents = enrollments.filter(e => e.sectionId === assessment.sectionId);
-    for (const enrollment of sectionStudents) {
-      const n = Number(enrollment.studentId.split('-')[1]);
-      const score = Math.max(0, assessment.maxScore - ((n * 3 + Number(assessment.id.split('-')[1])) % Math.ceil(assessment.maxScore * .45)));
-      gradeEntries.push(baseRecord(`ge-${assessment.id}-${enrollment.studentId}`, { assessmentId: assessment.id, studentId: enrollment.studentId, score, entryStatus: 'graded', note: '' }));
-    }
-  }
-
-  const feePlans = grades.map((grade, index) => baseRecord(`fee-plan-${index + 1}`, { academicYearId: year.id, gradeLevelId: grade.id, name: `رسوم ${grade.name}`, items: [
-    { code: 'TUITION', label: 'القسط الدراسي', amountMinor: 180000 + index * 10000 },
-    { code: 'ACTIVITY', label: 'الأنشطة', amountMinor: 20000 },
-  ], totalMinor: 200000 + index * 10000 }));
-  const invoices = students.map((student, index) => {
-    const enrollment = enrollments[index];
-    const section = sections.find(s => s.id === enrollment.sectionId);
-    const gradeIndex = grades.findIndex(g => g.id === section.gradeLevelId);
-    const totalMinor = feePlans[gradeIndex].totalMinor;
-    const paidMinor = index % 4 === 0 ? totalMinor : index % 3 === 0 ? Math.floor(totalMinor / 2) : 0;
-    const balanceMinor = totalMinor - paidMinor;
-    return baseRecord(`invoice-${index + 1}`, { invoiceNo: `INV-2026-${String(index + 1).padStart(4,'0')}`, studentId: student.id, academicYearId: year.id, feePlanId: feePlans[gradeIndex].id, items: feePlans[gradeIndex].items, subtotalMinor: totalMinor, discountMinor: 0, adjustmentsMinor: 0, totalMinor, paidMinor, balanceMinor, dueDate: index % 5 === 0 ? '2026-08-31' : '2026-10-15', status: balanceMinor === 0 ? 'paid' : paidMinor > 0 ? 'partial' : 'unpaid' });
-  });
-  const payments = invoices.filter(invoice => invoice.paidMinor > 0).map((invoice, index) => baseRecord(`payment-${index + 1}`, { receiptNo: `REC-2026-${String(index + 1).padStart(4,'0')}`, invoiceId: invoice.id, studentId: invoice.studentId, amountMinor: invoice.paidMinor, method: index % 2 ? 'bank_transfer' : 'cash', reference: index % 2 ? `TRX-${1000 + index}` : '', paidAt: '2026-08-25T09:00:00.000Z', status: 'posted' }));
-
-  const users = [
-    baseRecord('user-admin', { username: 'admin.demo', passwordHash: password.hash, passwordSalt: password.salt, passwordIterations: password.iterations, role: 'admin', profileId: null, displayName: `مدير ${SCHOOL_NAME}`, lastLoginAt: null, failedAttempts: 0, lockedUntil: null }),
-    baseRecord('user-teacher', { username: 'teacher.demo', passwordHash: password.hash, passwordSalt: password.salt, passwordIterations: password.iterations, role: 'teacher', profileId: 'teacher-1', displayName: 'أحمد الخطيب', lastLoginAt: null, failedAttempts: 0, lockedUntil: null }),
-    baseRecord('user-student', { username: 'student.demo', passwordHash: password.hash, passwordSalt: password.salt, passwordIterations: password.iterations, role: 'student', profileId: 'student-1', displayName: students[0].fullName, lastLoginAt: null, failedAttempts: 0, lockedUntil: null }),
-    baseRecord('user-guardian', { username: 'guardian.demo', passwordHash: password.hash, passwordSalt: password.salt, passwordIterations: password.iterations, role: 'guardian', profileId: 'guardian-1', displayName: guardians[0].fullName, lastLoginAt: null, failedAttempts: 0, lockedUntil: null }),
-  ];
-
-  const notifications = [
-    { id: 'notification-1', userId: 'user-admin', type: 'attendance', title: 'ملخص حضور اليوم', body: 'بلغت نسبة الحضور 92% حتى الآن.', entityType: 'attendance', entityId: null, isRead: false, createdAt: nowIso() },
-    { id: 'notification-2', userId: 'user-teacher', type: 'grade', title: 'درجات تحتاج مراجعة', body: 'يوجد تقييم واحد ما زال في المسودة.', entityType: 'assessment', entityId: 'assessment-1', isRead: false, createdAt: nowIso() },
-    { id: 'notification-3', userId: 'user-student', type: 'grade', title: 'تم نشر نتيجة جديدة', body: 'نُشرت نتيجة اختبار الشهر الأول.', entityType: 'assessment', entityId: 'assessment-1', isRead: false, createdAt: nowIso() },
-    { id: 'notification-4', userId: 'user-guardian', type: 'finance', title: 'تذكير بالرصيد', body: 'يوجد رصيد مستحق لأحد الأبناء.', entityType: 'invoice', entityId: 'invoice-1', isRead: false, createdAt: nowIso() },
-  ];
-
-  const seedSets = {
-    academicYears: [year], gradeLevels: grades, sections, teachers, subjects, students, guardians, studentGuardians,
-    enrollments, teachingAssignments: assignments, timetableSlots: timetable, attendanceSessions, attendanceRecords,
-    assessments, gradeEntries, feePlans, invoices, payments, users, notifications,
-    settings: [
-      { id: 'setting-seed', key: 'seedVersion', value: 1, updatedAt: nowIso(), updatedBy: 'system' },
-      { id: 'setting-school', key: 'schoolProfile', value: { ...DEFAULT_SCHOOL_PROFILE }, updatedAt: nowIso(), updatedBy: 'system' },
-      { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: 'system' },
-      { id: 'setting-policy', key: 'schoolPolicy', value: { attendanceMode: 'daily', lateWeight: .5, passScore: 50, sessionTimeoutMinutes: 45, workDays: [0,1,2,3,4] }, updatedAt: nowIso(), updatedBy: 'system' },
-    ],
-    auditLogs: [auditRecord('SEED_CREATED', 'system', 'seed-v1', null, { version: 1 })],
-  };
-
-  for (const [storeName, records] of Object.entries(seedSets)) await dbBulkPut(storeName, records);
-}
 
 async function ensureBrandIdentity() {
   const brandSetting = (await dbIndexAll('settings', 'key', 'brandIdentityVersion'))[0];
@@ -803,21 +646,6 @@ async function setupGlobalEvents() {
     input.type = input.type === 'password' ? 'text' : 'password';
     $('#toggle-password').setAttribute('aria-label', input.type === 'password' ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور');
   });
-  // زر حسابات التجربة يظهر في وضع العرض وحده. في التركيب الحقيقي لا وجود له.
-  const demoMode = isDemoMode();
-  const demoToggle = $('#show-demo');
-  if (!demoMode) {
-    demoToggle?.remove();
-    $('#demo-accounts')?.remove();
-  } else {
-    demoToggle.addEventListener('click', () => { $('#demo-accounts').hidden = !$('#demo-accounts').hidden; });
-  }
-  $$('#demo-accounts [data-demo-user]').forEach(button => button.addEventListener('click', () => {
-    $('#username').value = button.dataset.demoUser;
-    $('#password').value = DEMO_PASSWORD;
-    $('#demo-accounts').hidden = true;
-  }));
-
   $('#main-nav').addEventListener('click', event => {
     const button = event.target.closest('[data-route]');
     if (button) navigate(button.dataset.route);
@@ -950,10 +778,6 @@ async function seedFoundation({ createdBy, stages }) {
  * يُفعَّل بالنطاق (demo-school.athar-media.com) أو بـ ?demo=1 محليًا.
  * نسخة واحدة منشورة تخدم الحالتين — لا نسختان من الكود أبدًا.
  */
-function isDemoMode() {
-  if (new URLSearchParams(location.search).has('demo')) return true;
-  return location.hostname.split('.')[0].startsWith('demo');
-}
 
 
 /* ==================== الربط بلوحة أثر ==================== */
@@ -1152,7 +976,8 @@ async function bootstrap() {
 
     // وضع العرض: بيانات وحسابات تجريبية. يُطلب صراحةً بـ ?demo=1
     // ولا يعمل أبدًا في التركيب الحقيقي.
-    if (isDemoMode()) await ensureSeedData();
+    // لا بذر محلي: النسخة التجريبية تُنشأ من لوحة أثر بمستأجر environment=demo،
+    // وتصل بالمزامنة. البذر هنا كان يصنع مدرسة وهمية لا وجود لها في اللوحة.
 
     const users = await dbGetAll('users');
     // المدرسة تُنشأ من لوحة أثر وحدها. لا شاشة تأسيس محلية: كانت تسمح بإنشاء
@@ -2376,14 +2201,14 @@ async function renderSettings(){const school=normalizeSchoolProfile((await getSe
   </form></article>
   <article class="card"><header class="card__header"><div><h3>سياسات التشغيل</h3><p>تطبق على السجلات الجديدة</p></div></header><form id="policy-settings" class="form-grid"><div class="field"><label>نمط الحضور</label><select name="attendanceMode"><option value="daily" ${policy.attendanceMode==='daily'?'selected':''}>يومي</option><option value="period" ${policy.attendanceMode==='period'?'selected':''}>لكل حصة</option></select></div><div class="field"><label>وزن التأخير</label><input name="lateWeight" type="number" min="0" max="1" step="0.1" value="${policy.lateWeight??.5}"></div><div class="field"><label>حد النجاح %</label><input name="passScore" type="number" min="0" max="100" value="${policy.passScore??50}"></div><div class="field"><label>قفل الجلسة (دقيقة)</label><input name="sessionTimeoutMinutes" type="number" min="5" max="240" value="${policy.sessionTimeoutMinutes??45}"></div><div class="field field--full"><button class="button button--primary" type="submit">حفظ السياسات</button></div></form></article>
   <article class="card"><header class="card__header"><div><h3>النسخ الاحتياطي</h3><p>${formatNumber(total)} سجلًا في ${Object.keys(SCHEMA).length} مخزنًا محليًا</p></div></header><div class="alert-card is-warning"><span class="alert-card__icon">!</span><div class="alert-card__copy"><h4>البيانات مرتبطة بهذا المتصفح</h4><p>احفظ نسخة دورية. ملف النسخة حساس ويحتوي بيانات المدرسة وهويتها.</p></div></div><div class="page-actions" style="margin-top:15px"><button class="button button--primary" id="export-backup">تنزيل نسخة JSON</button><label class="button button--secondary" for="import-backup" style="cursor:pointer">استعادة نسخة<input id="import-backup" type="file" accept="application/json" hidden></label></div></article>
-  <article class="card"><header class="card__header"><div><h3>صيانة بيانات العرض</h3><p>إعادة القاعدة إلى بياناتها التجريبية الأولى</p></div></header><div class="confirm-box">هذا الإجراء يحذف كل التعديلات المحلية ويعيد بيانات العرض. خذ نسخة قبل المتابعة.</div><button class="button button--danger" id="reset-demo" style="margin-top:15px">إعادة ضبط بيانات العرض</button></article></section></div>`;
+  </section></div>`;
   $('#school-logo-input').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{pendingLogoDataUrl=await prepareSchoolLogo(file);$('#school-logo-preview').src=pendingLogoDataUrl;}catch(error){showToast('تعذر اعتماد الشعار',error.message,'error',6000);e.target.value='';}});
   $('#reset-school-logo').addEventListener('click',()=>{pendingLogoDataUrl='';pendingLogoPath=SCHOOL_LOGO;$('#school-logo-input').value='';$('#school-logo-preview').src=SCHOOL_LOGO;});
   $('#school-settings').addEventListener('submit',async e=>{e.preventDefault();if(!e.currentTarget.reportValidity())return;const raw=Object.fromEntries(new FormData(e.currentTarget));const value=normalizeSchoolProfile({...school,...raw,logoPath:pendingLogoPath,logoDataUrl:pendingLogoDataUrl,timezone:school.timezone||'Asia/Hebron'});const setting=(await getSetting('schoolProfile'))||{id:'setting-school',key:'schoolProfile'};await dbPut('settings',{...setting,value,updatedAt:nowIso(),updatedBy:state.user.id});const admin=await dbGet('users','user-admin');if(admin&&admin.displayName===`مدير ${school.name}`){admin.displayName=`مدير ${value.name}`;admin.updatedAt=nowIso();admin.updatedBy=state.user.id;await dbPut('users',admin);if(state.user.id===admin.id){state.user=admin;updateUserChrome();}}await audit('SCHOOL_PROFILE_UPDATED','settings','schoolProfile',{name:school.name,shortName:school.shortName,hasCustomLogo:Boolean(school.logoDataUrl)},{name:value.name,shortName:value.shortName,hasCustomLogo:Boolean(value.logoDataUrl)});applySchoolBrand(value);$('#breadcrumb').textContent=`${value.name} / الإعدادات والنسخ`;showToast('تم تطبيق هوية المدرسة','تحدث الاسم والشعار وبيانات الشهادات بنجاح.','success');});
   $('#policy-settings').addEventListener('submit',async e=>{e.preventDefault();const raw=Object.fromEntries(new FormData(e.currentTarget)),value={...policy,attendanceMode:raw.attendanceMode,lateWeight:Number(raw.lateWeight),passScore:Number(raw.passScore),sessionTimeoutMinutes:Number(raw.sessionTimeoutMinutes)};const setting=(await getSetting('schoolPolicy'))||{id:'setting-policy',key:'schoolPolicy'};await dbPut('settings',{...setting,value,updatedAt:nowIso(),updatedBy:state.user.id});await audit('POLICY_UPDATED','settings','schoolPolicy',policy,value);showToast('تم الحفظ','ستطبق السياسة على العمليات الجديدة.','success');});
   $('#export-backup').addEventListener('click',downloadBackup);
   $('#import-backup').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const payload=JSON.parse(await file.text());await validateBackup(payload);openModal({title:'تأكيد استعادة النسخة',kicker:'إجراء حساس',body:`<div class="confirm-box"><strong>سيتم استبدال البيانات الحالية.</strong><p>تاريخ النسخة: ${formatDate(payload.exportedAt)} · إجمالي السجلات: ${Object.values(payload.counts).reduce((s,n)=>s+n,0)}</p><p>سيتم تنزيل نسخة تلقائية من الحالة الحالية أولًا.</p></div>`,footer:'<button class="button button--danger" id="confirm-restore">تنزيل الحالية ثم الاستعادة</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#confirm-restore').addEventListener('click',async()=>{await downloadBackup();await restoreBackup(payload);location.reload();});}});}catch(error){showToast('نسخة غير صالحة',error.message,'error',6000);}finally{e.target.value='';}});
-  $('#reset-demo').addEventListener('click',()=>openModal({title:'إعادة ضبط بيانات العرض',kicker:'إجراء غير قابل للتراجع',body:'<div class="confirm-box">سيتم حذف البيانات المحلية الحالية وإعادة إنشاء بيانات العرض. اكتب <strong>إعادة ضبط</strong> للتأكيد.</div><div class="field" style="margin-top:15px"><input id="reset-confirm-text" placeholder="إعادة ضبط"></div>',footer:'<button class="button button--danger" id="confirm-reset">تأكيد إعادة الضبط</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#confirm-reset').addEventListener('click',async()=>{if($('#reset-confirm-text').value.trim()!=='إعادة ضبط'){showToast('التأكيد غير مطابق','اكتب العبارة كما هي.','error');return;}await downloadBackup();const tx=state.db.transaction(Object.keys(SCHEMA),'readwrite');for(const name of Object.keys(SCHEMA))tx.objectStore(name).clear();await transactionDone(tx);await ensureSeedData();sessionStorage.clear();location.reload();});}}));}
+}
 
 async function renderNotifications(){const list=(await dbIndexAll('notifications','userId',state.user.id)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));$('#view-root').innerHTML=`<div class="page">${renderPageHeader('الإشعارات','التحديثات الأكاديمية والمالية المتاحة لحسابك.',list.some(n=>!n.isRead)?'<button class="button button--secondary" id="mark-all-read">تعليم الكل كمقروء</button>':'')}
   <section class="card"><div class="notice-list">${list.map(n=>`<div class="notice-item" style="${n.isRead?'opacity:.65':''}"><span class="activity-icon">${n.type==='finance'?'₪':n.type==='grade'?'◇':'✓'}</span><span class="activity-copy"><strong>${escapeHtml(n.title)} ${n.isRead?'':'<span class="status status--info">جديد</span>'}</strong><small>${escapeHtml(n.body)}</small></span><span class="activity-time">${formatDate(n.createdAt)}<br>${formatTime(n.createdAt)}</span></div>`).join('')||renderEmpty('لا إشعارات','لا توجد إشعارات لهذا الحساب.')}</div></section></div>`;$('#mark-all-read')?.addEventListener('click',async()=>{for(const n of list){if(!n.isRead){n.isRead=true;n.readAt=nowIso();await dbPut('notifications',n);}}await updateNotificationDot();renderNotifications();});}
