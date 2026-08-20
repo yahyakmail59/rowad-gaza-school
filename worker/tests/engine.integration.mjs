@@ -66,12 +66,13 @@ async function ok(response, message) {
   return payload;
 }
 
-async function createSchool(slug, name, environment, planCode) {
+async function createSchool(slug, name, environment, planCode, adminUsername) {
   const tenantId = randomUUID();
   const requestId = randomUUID();
   const response = await signed('POST', '/internal/v1/tenants', requestId, {
     request_id: requestId, tenant_id: tenantId, slug, display_name: name,
     environment, plan_code: planCode, trial_expires_at: null,
+    ...(adminUsername ? { admin_username: adminUsername } : {}),
     config: { phone: '0599000000', address: 'غزة', currency: 'ILS' },
   });
   assert.equal(response.status, 201, `create ${slug}`);
@@ -550,6 +551,26 @@ try {
   assert.equal(override.credentials.username, 'mudeer', 'Athar must report the real admin username');
   assert.equal((await login(credSchool.credentials.school_id, 'mudeer', override.credentials.secret)).status, 200,
     'Athar reset issues a working password for the current username');
+
+  /* ---------- اسم مستخدم المدير يختاره المشغّل ---------- */
+
+  const named = await createSchool('named', 'مدرسة الاسم', 'production', 'basic', 'Nadir.Admin');
+  assert.equal(named.credentials.username, 'nadir.admin', 'the chosen username is normalised to lowercase');
+  assert.equal((await login(named.credentials.school_id, 'nadir.admin', named.credentials.admin_password)).status, 200);
+  assert.equal((await login(named.credentials.school_id, 'admin', named.credentials.admin_password)).status, 401,
+    'the default username must not also work');
+
+  const badUsernameId = randomUUID();
+  const badUsername = await signed('POST', '/internal/v1/tenants', badUsernameId, {
+    request_id: badUsernameId, tenant_id: randomUUID(), slug: 'bad-user', display_name: 'مدرسة',
+    environment: 'production', plan_code: 'basic', trial_expires_at: null,
+    admin_username: 'مدير عربي', config: {},
+  });
+  assert.equal(badUsername.status, 422, 'an invalid username must be refused at creation');
+
+  // الحقل اختياري: تركه فارغًا يُبقي الافتراض.
+  const defaulted = await createSchool('defaulted', 'مدرسة افتراضية', 'production', 'basic');
+  assert.equal(defaulted.credentials.username, 'admin');
 
   console.log('school-engine-integration-ok');
 } finally {

@@ -267,6 +267,13 @@ async function provisionFromAthar(env, signed) {
   if (!environment) throw new HttpError(422, 'INVALID_ENVIRONMENT', 'Environment must be demo or production.');
   const planCode = planCodeOf(adapterRequired(body.plan_code, 'INVALID_PLAN_CODE', 80));
   const config = body.config && typeof body.config === 'object' && !Array.isArray(body.config) ? body.config : {};
+  // اسم مستخدم المدير يختاره المشغّل من لوحة أثر. `admin` افتراض لا قاعدة:
+  // مدرسة قد تفضّل اسمًا يعرفه مديرها، ولا سبب لفرض واحد على الجميع.
+  const adminUsername = str(body.admin_username, 60).trim().toLowerCase() || 'admin';
+  if (!/^[a-z0-9._-]{3,40}$/.test(adminUsername)) {
+    throw new HttpError(422, 'INVALID_ADMIN_USERNAME',
+      'اسم المستخدم: حروف إنجليزية وأرقام ونقطة وشرطة، من 3 إلى 40.');
+  }
 
   const started = await beginAdapterRequest(db, signed.requestId, 'create', tenantId, signed.requestHash);
   const password = await adminPassword(env.ATHAR_ADAPTER_SECRET, signed.requestId, tenantId);
@@ -306,6 +313,7 @@ async function provisionFromAthar(env, signed) {
       environment,
       seed_version: seedVersion,
       public_url: publicSchoolUrl(env, schoolId),
+      admin_username: adminUsername,
     };
 
     const statements = [
@@ -322,8 +330,8 @@ async function provisionFromAthar(env, signed) {
         `INSERT INTO school_users
          (id, school_id, username, display_name, role, profile_id, password_hash, password_salt,
           password_iterations, is_active, created_at, updated_at)
-         VALUES (?, ?, 'admin', ?, 'admin', '', ?, ?, ?, 1, ?, ?)`,
-      ).bind(`admin_${schoolId}`, schoolId, `مدير ${displayName}`, hash, salt, PBKDF2_ITER, now, now),
+         VALUES (?, ?, ?, ?, 'admin', '', ?, ?, ?, 1, ?, ?)`,
+      ).bind(`admin_${schoolId}`, schoolId, adminUsername, `مدير ${displayName}`, hash, salt, PBKDF2_ITER, now, now),
       db.prepare(
         `INSERT INTO records (school_id, store, id, doc_json, deleted, version, updated_at, updated_by)
          VALUES (?, 'settings', 'schoolProfile', ?, 0, 1, ?, 'system')`,
@@ -340,7 +348,7 @@ async function provisionFromAthar(env, signed) {
     console.log(JSON.stringify({ event: 'adapter.provision', request_id: signed.requestId, tenant_id: tenantId, status: 'succeeded' }));
     return json({
       ...result,
-      credentials: credentialPayload(schoolId, password),
+      credentials: credentialPayload(schoolId, password, adminUsername),
     }, 201);
   } catch (error) {
     await markAdapterFailed(db, signed.requestId, error instanceof HttpError ? error.code : 'PROVISIONING_FAILED');
@@ -440,7 +448,7 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
     return json({
       ...started.result,
       credentials: credentialPayload(
-        started.result.external_tenant_id, password, started.result.admin_username || 'admin',
+        started.result.external_tenant_id, password, started.result.admin_username || adminUsername,
       ),
       replayed: true,
     });

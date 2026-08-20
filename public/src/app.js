@@ -529,13 +529,27 @@ function showAuth() {
   setTimeout(() => $('#username')?.focus(), 20);
 }
 
-async function showApp() {
-  $('#auth-screen').hidden = true;
-  $('#app-shell').hidden = false;
+/**
+ * إطار الواجهة الثابت: الاسم والشعار والسنة النشطة والمستخدم والإشعارات.
+ *
+ * كان يُضبط مرة واحدة عند الدخول، فأي تغيير بعده لا يظهر: تُضاف سنة دراسية
+ * فلا تراها في القائمة، ويُعدَّل اسم المدرسة فيبقى القديم حتى إعادة التحميل.
+ * يُستدعى الآن بعد كل تنقّل وبعد كل مزامنة، فيعكس تغييرات الأجهزة الأخرى أيضًا.
+ */
+async function refreshChrome() {
+  if (!state.user) return;
   updateUserChrome();
+  const profile = (await getSetting('schoolProfile'))?.value;
+  if (profile) applySchoolBrand(profile);
   const year = (await dbGetAll('academicYears')).find(item => item.isActive);
   $('#active-year-label').textContent = year?.name || 'غير محددة';
   await updateNotificationDot();
+}
+
+async function showApp() {
+  $('#auth-screen').hidden = true;
+  $('#app-shell').hidden = false;
+  await refreshChrome();
   const requested = location.hash.replace('#/', '') || 'dashboard';
   await navigate(canAccessRoute(requested) ? requested : 'dashboard', { updateHash: requested !== 'dashboard' });
 }
@@ -568,6 +582,7 @@ async function navigate(route, { updateHash = true } = {}) {
   } finally {
     $('#page-loading').hidden = true;
     $('#main-content').focus({ preventScroll: true });
+    await refreshChrome();
   }
 }
 
@@ -801,6 +816,9 @@ async function applyRemote(payload) {
       await transactionDone(tx);
     }
   });
+  // تغيير اسم المدرسة أو السنة النشطة من جهاز آخر يصل بالمزامنة، فيجب أن
+  // يظهر هنا دون إعادة تحميل.
+  await refreshChrome();
 }
 
 
