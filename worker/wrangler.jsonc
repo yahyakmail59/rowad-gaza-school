@@ -1,0 +1,26 @@
+{
+  "$schema": "../../athar-console/node_modules/wrangler/config-schema.json",
+  "name": "athar-school-api",
+  "main": "./worker.js",
+  "compatibility_date": "2026-08-19",
+  "workers_dev": true,
+  // الواجهة تُخدم من نفس الأصل مثل محرك الصيدلية: لا CORS، ورابط عام لكل مدرسة.
+  "assets": {
+    "directory": "../public",
+    "run_worker_first": ["/api/*", "/internal/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "school-db",
+      "database_id": "fc6593ed-db7b-4b6e-bedf-ff1d65a4906a"
+    }
+  ],
+  "vars": {
+    "PUBLIC_APP_URL": "https://athar-school-api.yahyakmail59.workers.dev/"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
