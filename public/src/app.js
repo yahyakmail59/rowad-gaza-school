@@ -772,11 +772,20 @@ async function setupGlobalEvents() {
         $('#login-message').textContent = 'جارٍ التحقق من لوحة أثر…';
         try {
           await linkDeviceAndMirrorUser(schoolId, username.value.trim(), password.value);
-        } catch {
+        } catch (remoteError) {
+          // كانت كل أنواع الفشل تُبلَّغ كـ«بيانات غير صحيحة»، فيبدو الرفض
+          // خاطئًا بينما السبب شبكة أو اشتراك موقوف. نميّز الآن.
+          if (/غير صحيحة|موقوف|محاولات/.test(remoteError.message)) throw remoteError;
           throw localError;
         }
         await signIn(username.value.trim(), password.value);
         await renderSyncStatus();
+        // السحب الأول قد يستغرق ثواني. لا نجعل الدخول رهينته: الحساب صار
+        // موجودًا والجلسة صالحة، وفشل السحب لا يعني أن البيانات خاطئة.
+        // كان انتظاره ثم فشله يعرض «بيانات غير صحيحة» رغم نجاح الربط،
+        // فيضغط المستخدم مرة ثانية فيدخل محليًا — وهذا سبب تكرار الضغط.
+        Sync.run(applyRemote)
+          .catch((syncError) => showToast('تعذرت المزامنة الأولى', syncError.message, 'error'));
         Sync.start(applyRemote);
       }
       await showApp();
@@ -981,14 +990,19 @@ async function applyRemote(payload) {
  * لا نستورد تجزئة الخادم: هي لا تغادره أصلًا، وهذا مقصود.
  */
 async function linkDeviceAndMirrorUser(schoolId, username, password) {
+  const previousSchool = Sync.schoolId;
   const session = await Sync.login(schoolId, username, password);
   const remote = session.user;
-  const derived = await derivePassword(password);
-  const existing = await dbGet('users', remote.id);
 
+  // ربط الجهاز بمدرسة غير التي كان عليها يعني أن كل ما في الذاكرة المحلية
+  // يخص مدرسة أخرى. بدون مسحه يظهر طلاب المدرسة السابقة ومديرها داخل
+  // المدرسة الجديدة، ويبدو الأمر كأن للمدرسة الجديدة تاريخًا لا تملكه.
+  if (previousSchool !== session.school.id) await wipeLocalSchoolData();
+
+  const derived = await derivePassword(password);
   await suspendOutbox(async () => {
     await dbPut('users', {
-      ...(existing || baseRecord(remote.id)),
+      ...baseRecord(remote.id),
       id: remote.id,
       username: remote.username,
       displayName: remote.name || remote.username,
@@ -1004,10 +1018,20 @@ async function linkDeviceAndMirrorUser(schoolId, username, password) {
       updatedBy: 'athar-link',
     });
   });
-
-  await Sync.run(applyRemote);
-  await loadSchoolProfile();
   return remote;
+}
+
+/**
+ * مسح بيانات المدرسة المحلية مع إبقاء الحسابات: الحساب يُكتب بعد المسح
+ * مباشرة، والمسح هنا يخص كيانات المدرسة السابقة وحدها.
+ */
+async function wipeLocalSchoolData() {
+  const names = Object.keys(SCHEMA);
+  await suspendOutbox(async () => {
+    const tx = state.db.transaction(names, 'readwrite');
+    for (const name of names) tx.objectStore(name).clear();
+    await transactionDone(tx);
+  });
 }
 
 /**
@@ -1076,6 +1100,8 @@ function openLinkDialog() {
           await signIn(data.username, data.password);
           closeModal();
           await renderSyncStatus();
+          Sync.run(applyRemote)
+            .catch((syncError) => showToast('تعذرت المزامنة الأولى', syncError.message, 'error'));
           Sync.start(applyRemote);
           await showApp();
           showToast('تم ربط الجهاز', `مرحبًا ${state.user.displayName}`, 'success');

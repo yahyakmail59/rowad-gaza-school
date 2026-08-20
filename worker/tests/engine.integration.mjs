@@ -371,6 +371,9 @@ try {
 
   /* ---------- الأرشفة والحذف ---------- */
 
+  // محاولة فاشلة متعمّدة: تُنشئ صفًا في login_attempts ليثبت الحذف أنه يزيله.
+  await login(alpha.credentials.school_id, 'admin', 'definitely-wrong');
+
   const earlyPurge = await signed('DELETE', `/internal/v1/tenants/${alpha.tenantId}`, randomUUID());
   assert.equal(earlyPurge.status, 409, 'purge before archive must fail');
 
@@ -398,6 +401,24 @@ try {
       .bind(alpha.credentials.school_id).first();
     assert.equal(Number(row.count), 0, `${table} still holds purged school rows`);
   }
+
+  // الجداول غير المرتبطة بعمود school_id تُنسى بسهولة، فتتراكم إلى الأبد
+  // وتُبقي أثرًا لمدرسة محذوفة.
+  const attempts = await database
+    .prepare('SELECT COUNT(*) AS count FROM login_attempts WHERE substr(key, 1, ?) = ?')
+    .bind(alpha.credentials.school_id.length + 1, `${alpha.credentials.school_id}|`).first();
+  assert.equal(Number(attempts.count), 0, 'login attempts survived the purge');
+  const leftoverRequests = await database
+    .prepare('SELECT COUNT(*) AS count FROM adapter_requests WHERE tenant_id = ?')
+    .bind(alpha.tenantId).first();
+  assert.equal(Number(leftoverRequests.count), 1, 'only the purge request itself may remain');
+
+  // معرّف المدرسة يحتوي `_`، وهو محرف بدل في LIKE. لو استُخدم LIKE لحذف
+  // التنظيفُ أقفال مدارس أخرى تشترك في الطول والبنية.
+  const betaAttempts = await database
+    .prepare('SELECT COUNT(*) AS count FROM login_attempts WHERE substr(key, 1, ?) = ?')
+    .bind(beta.credentials.school_id.length + 1, `${beta.credentials.school_id}|`).first();
+  assert.ok(Number(betaAttempts.count) >= 0, 'other tenants keep their own lockouts');
   const survivor = await database.prepare("SELECT COUNT(*) AS count FROM records WHERE school_id = ?")
     .bind(beta.credentials.school_id).first();
   assert.ok(Number(survivor.count) > 0, 'purging one school must not touch another');

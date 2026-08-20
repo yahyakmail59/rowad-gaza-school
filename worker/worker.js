@@ -519,6 +519,14 @@ async function purgeTenant(env, signed, tenantIdFromPath) {
     const statements = SCHOOL_SCOPED_TABLES.map((table) =>
       db.prepare(`DELETE FROM ${table} WHERE school_id = ?`).bind(school.school_id));
     statements.push(
+      // مفاتيح محاولات الدخول تحمل المدرسة كبادئة لا كعمود. لا نستخدم LIKE
+      // هنا: معرّف المدرسة يحتوي `_` وهو محرف بدل في LIKE، فكان سيطابق
+      // مدارس أخرى ويحذف أقفالها.
+      db.prepare('DELETE FROM login_attempts WHERE substr(key, 1, ?) = ?')
+        .bind(school.school_id.length + 1, `${school.school_id}|`),
+      // سجل طلبات المحوّل ينمو بلا سقف؛ حذف المستأجر يجب أن يأخذه معه.
+      db.prepare('DELETE FROM adapter_requests WHERE tenant_id = ? AND request_id <> ?')
+        .bind(tenantId, signed.requestId),
       db.prepare('DELETE FROM schools WHERE control_tenant_id = ?').bind(tenantId),
       db.prepare(
         `UPDATE adapter_requests SET status = 'succeeded', response_json = ?, error_code = '', completed_at = ?
