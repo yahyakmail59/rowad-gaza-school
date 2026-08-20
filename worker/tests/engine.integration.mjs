@@ -613,6 +613,75 @@ try {
   assert.equal(renamedProfile.shortName, 'الجديد');
   assert.equal(renamedProfile.phone, '0599', 'the rename keeps what the school owns');
 
+  /* ---------- إدارة حسابات الموظفين ---------- */
+
+  const staffSchool = await createSchool('staff', 'مدرسة الحسابات', 'production', 'full');
+  const head = await login(staffSchool.credentials.school_id, 'admin', staffSchool.credentials.admin_password);
+  const headToken = head.payload.token;
+
+  const makeUser = (token, payload) => authed(token, '/api/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+
+  const teacherAccount = await makeUser(headToken, {
+    username: 'ustath.ahmad', password: 'teacher-pass-2026', role: 'teacher',
+    profile_id: 'teacher-1', display_name: 'أحمد الخطيب',
+  });
+  assert.equal(teacherAccount.status, 201, 'the admin can create a teacher account');
+
+  // هذا هو جوهر المسألة: المعلّم يدخل من جهاز لم يُنشأ عليه الحساب.
+  const staffTeacherLogin = await login(staffSchool.credentials.school_id, 'ustath.ahmad', 'teacher-pass-2026');
+  assert.equal(staffTeacherLogin.status, 200, 'the teacher must be able to sign in from another device');
+  assert.equal(staffTeacherLogin.payload.user.role, 'teacher');
+  assert.equal(staffTeacherLogin.payload.user.profile_id, 'teacher-1');
+
+  // وصلاحياته هي صلاحيات المعلّم لا المدير.
+  const staffTeacherWrite = await (await authed(staffTeacherLogin.payload.token, '/api/push', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ changes: [{ store: 'students', id: 'student-1', doc: { id: 'student-1', fullName: 'x' } }] }),
+  })).json();
+  assert.equal(staffTeacherWrite.accepted, 0, 'a teacher still cannot write student records');
+
+  // المعلّم لا يدير الحسابات.
+  const staffTeacherMakesUser = await makeUser(staffTeacherLogin.payload.token, {
+    username: 'sneaky', password: 'sneaky-pass-1', role: 'admin',
+  });
+  assert.equal(staffTeacherMakesUser.status, 403, 'only an admin manages accounts');
+
+  // اسم مستخدم مكرر وملف مرتبط مسبقًا: كلاهما يُرفض.
+  assert.equal((await makeUser(headToken, {
+    username: 'ustath.ahmad', password: 'another-pass-1', role: 'teacher', profile_id: 'teacher-2',
+  })).status, 409, 'duplicate username is refused');
+  assert.equal((await makeUser(headToken, {
+    username: 'other.name', password: 'another-pass-1', role: 'teacher', profile_id: 'teacher-1',
+  })).status, 409, 'a profile cannot carry two accounts');
+
+  // تعطيل الحساب يمنع الدخول ويقطع الجلسة القائمة.
+  const teacherId = (await teacherAccount.json()).user.id;
+  const disable = await authed(headToken, `/api/users/${teacherId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: false }),
+  });
+  assert.equal(disable.status, 200);
+  assert.equal((await login(staffSchool.credentials.school_id, 'ustath.ahmad', 'teacher-pass-2026')).status, 401,
+    'a disabled account cannot sign in');
+  assert.equal((await authed(staffTeacherLogin.payload.token, '/api/pull?since=0&stores=students')).status, 401,
+    'disabling revokes the live session');
+
+  // المدير لا يعطّل نفسه فيقفل المدرسة على الجميع.
+  const selfDisable = await authed(headToken, `/api/users/${head.payload.user.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: false }),
+  });
+  assert.equal(selfDisable.status, 409, 'the admin must not lock themselves out');
+
+  // حسابات أولياء الأمور من الباقة الكاملة، والفرض على الخادم.
+  const basicPlanSchool = await createSchool('staff-basic', 'مدرسة أساسية', 'production', 'basic');
+  const basicPlanHead = (await login(basicPlanSchool.credentials.school_id, 'admin', basicPlanSchool.credentials.admin_password)).payload.token;
+  assert.equal((await makeUser(basicPlanHead, {
+    username: 'wali.amr', password: 'guardian-pass-1', role: 'guardian', profile_id: 'guardian-1',
+  })).status, 422, 'guardian accounts need the full plan');
+
   console.log('school-engine-integration-ok');
 } finally {
   await miniflare.dispose();

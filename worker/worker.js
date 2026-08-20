@@ -1096,6 +1096,134 @@ async function changeOwnCredentials(request, env, session, token) {
   });
 }
 
+/**
+ * إدارة حسابات المدرسة من داخلها — للمدير وحده.
+ *
+ * كانت الحسابات تُنشأ في IndexedDB وحدها، فالمعلّم الذي يضيفه المدير يوجد على
+ * متصفح واحد ولا يستطيع الدخول من جهازه. الأدوار والصلاحيات كانت تعمل، لكن
+ * على جهاز واحد فقط — وهذا يناقض كون المنتج متعدد الأجهزة.
+ *
+ * التجزئة تُحسب هنا ولا تغادر الخادم أبدًا. الجهاز يحتفظ بمرآة مشتقّة من
+ * كلمة المرور لحظة الدخول، لا بنسخة من تجزئة الخادم.
+ */
+async function manageUsers(request, env, session, method, userIdFromPath) {
+  if (session.role !== 'admin') {
+    throw new HttpError(403, 'FORBIDDEN', 'إدارة الحسابات للمدير وحده.');
+  }
+  const bytes = await readBoundedBody(request, 4096);
+  let body = {};
+  if (bytes.byteLength) {
+    try {
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw new HttpError(400, 'INVALID_JSON', 'Request JSON is invalid.');
+    }
+  }
+
+  const school = await env.DB.prepare('SELECT plan_code FROM schools WHERE school_id = ?')
+    .bind(session.school_id).first();
+
+  if (method === 'POST') {
+    const username = str(body.username, 60).trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
+      throw new HttpError(422, 'INVALID_USERNAME', 'اسم المستخدم: حروف إنجليزية وأرقام ونقطة وشرطة، من 3 إلى 40.');
+    }
+    const password = str(body.password, 200);
+    if (password.length < 8) {
+      throw new HttpError(422, 'WEAK_PASSWORD', 'كلمة المرور يجب ألا تقل عن 8 محارف.');
+    }
+    const role = str(body.role, 20);
+    if (!['admin', 'teacher', 'student', 'guardian'].includes(role)) {
+      throw new HttpError(422, 'INVALID_ROLE', 'الدور غير معروف.');
+    }
+    // حسابات أولياء الأمور من الباقة الكاملة. الفرض هنا لا في الواجهة.
+    if (role === 'guardian' && school?.plan_code !== 'full') {
+      throw new HttpError(422, 'PLAN_FORBIDDEN', 'حسابات أولياء الأمور جزء من الباقة الكاملة.');
+    }
+    const profileId = str(body.profile_id, 120).trim();
+    if (role !== 'admin' && !profileId) {
+      throw new HttpError(422, 'PROFILE_REQUIRED', 'يجب ربط الحساب بملف الشخص.');
+    }
+
+    const clash = await env.DB.prepare(
+      'SELECT id FROM school_users WHERE school_id = ? AND username = ?',
+    ).bind(session.school_id, username).first();
+    if (clash) throw new HttpError(409, 'USERNAME_TAKEN', 'اسم المستخدم مستخدم داخل هذه المدرسة.');
+
+    if (profileId) {
+      const linked = await env.DB.prepare(
+        'SELECT id FROM school_users WHERE school_id = ? AND profile_id = ?',
+      ).bind(session.school_id, profileId).first();
+      if (linked) throw new HttpError(409, 'PROFILE_TAKEN', 'هذا الملف مرتبط بحساب آخر.');
+    }
+
+    const salt = newSalt();
+    const now = Date.now();
+    const id = body.id ? str(body.id, 120) : crypto.randomUUID();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO school_users
+         (id, school_id, username, display_name, role, profile_id, password_hash, password_salt,
+          password_iterations, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      ).bind(
+        id, session.school_id, username, str(body.display_name, 160) || username, role, profileId,
+        await derivePassword(password, salt), salt, PBKDF2_ITER, now, now,
+      ),
+      env.DB.prepare(
+        `INSERT INTO school_audit (id, school_id, at, user_id, user_name, action, entity, entity_id, detail)
+         VALUES (?, ?, ?, ?, '', 'USER_CREATED', 'user', ?, ?)`,
+      ).bind(crypto.randomUUID(), session.school_id, now, session.user_id, id, `${username}/${role}`),
+    ]);
+    return json({ ok: true, user: { id, username, role, profile_id: profileId, display_name: str(body.display_name, 160) || username } }, 201);
+  }
+
+  // PATCH: تعطيل/تفعيل، تغيير الاسم المعروض، أو كلمة مرور جديدة.
+  const userId = str(userIdFromPath, 120);
+  const target = await env.DB.prepare(
+    'SELECT id, role FROM school_users WHERE id = ? AND school_id = ?',
+  ).bind(userId, session.school_id).first();
+  if (!target) throw new HttpError(404, 'USER_NOT_FOUND', 'الحساب غير موجود.');
+  if (target.id === session.user_id && body.is_active === false) {
+    throw new HttpError(409, 'CANNOT_DISABLE_SELF', 'لا يمكنك تعطيل حسابك أنت.');
+  }
+
+  const now = Date.now();
+  const statements = [];
+  if (body.password !== undefined) {
+    const password = str(body.password, 200);
+    if (password.length < 8) throw new HttpError(422, 'WEAK_PASSWORD', 'كلمة المرور يجب ألا تقل عن 8 محارف.');
+    const salt = newSalt();
+    statements.push(env.DB.prepare(
+      `UPDATE school_users SET password_hash = ?, password_salt = ?, password_iterations = ?, updated_at = ?
+       WHERE id = ?`,
+    ).bind(await derivePassword(password, salt), salt, PBKDF2_ITER, now, userId));
+    // كلمة مرور جديدة تُخرج أجهزة صاحب الحساب: هذا معنى «إعادة التعيين».
+    statements.push(env.DB.prepare('DELETE FROM sessions WHERE school_id = ? AND user_id = ?')
+      .bind(session.school_id, userId));
+  }
+  if (body.is_active !== undefined) {
+    statements.push(env.DB.prepare('UPDATE school_users SET is_active = ?, updated_at = ? WHERE id = ?')
+      .bind(body.is_active ? 1 : 0, now, userId));
+    if (!body.is_active) {
+      statements.push(env.DB.prepare('DELETE FROM sessions WHERE school_id = ? AND user_id = ?')
+        .bind(session.school_id, userId));
+    }
+  }
+  if (body.display_name !== undefined) {
+    statements.push(env.DB.prepare('UPDATE school_users SET display_name = ?, updated_at = ? WHERE id = ?')
+      .bind(str(body.display_name, 160), now, userId));
+  }
+  if (!statements.length) throw new HttpError(422, 'NOTHING_TO_CHANGE', 'لم تغيّر شيئًا.');
+  statements.push(env.DB.prepare(
+    `INSERT INTO school_audit (id, school_id, at, user_id, user_name, action, entity, entity_id, detail)
+     VALUES (?, ?, ?, ?, '', 'USER_UPDATED', 'user', ?, ?)`,
+  ).bind(crypto.randomUUID(), session.school_id, now, session.user_id, userId,
+    Object.keys(body).join(',')));
+  await env.DB.batch(statements);
+  return json({ ok: true });
+}
+
 async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -1114,6 +1242,13 @@ async function handleApi(request, env) {
     const token = bearer;
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256b64(token)).run();
     return json({ ok: true });
+  }
+  if (path === '/api/users' && request.method === 'POST') {
+    return manageUsers(request, env, session, 'POST', '');
+  }
+  const userMatch = path.match(/^\/api\/users\/([^/]+)$/);
+  if (userMatch && request.method === 'PATCH') {
+    return manageUsers(request, env, session, 'PATCH', decodeURIComponent(userMatch[1]));
   }
   if (path === '/api/pull' && request.method === 'GET') return pull(request, env, session);
   if (path === '/api/push' && request.method === 'POST') return push(request, env, session);

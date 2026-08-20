@@ -1948,7 +1948,28 @@ function openPaymentForm(ctx,invoiceId=''){const unpaid=ctx.allInvoices.filter(i
 async function renderReports(){const data=await dashboardData();const sectionMap=new Map(data.sections.map(s=>[s.id,s]));const alerts=[];if(data.attendanceRate<85)alerts.push({type:'danger',title:'انخفاض في الحضور',body:`بلغت نسبة الحضور ${data.attendanceRate}% ضمن نطاق العرض، وهي أقل من حد المتابعة 85%.`,action:'راجع سجلات الغياب',route:'attendance'});if(schoolAllows('finance')&&data.outstanding>0)alerts.push({type:'warning',title:'أرصدة تحتاج متابعة',body:`إجمالي الرصيد المستحق ${formatMoney(data.outstanding)}. هذا التنبيه مالي فقط ولا يدخل في تقييم الطلاب.`,action:'افتح التقرير المالي',route:'finance'});if(data.gradeAverage<65)alerts.push({type:'danger',title:'متوسط أداء منخفض',body:`متوسط النتائج المنشورة ${data.gradeAverage}% ويستحسن مراجعة التقييمات الناقصة.`,action:'راجع الدرجات',route:'grades'});if(!alerts.length)alerts.push({type:'success',title:'المؤشرات ضمن النطاق المتوقع',body:'لا توجد قواعد متابعة حرجة وفق البيانات الحالية.',action:'عرض لوحة التحكم',route:'dashboard'});const sectionAttendance=data.sections.map(section=>{const studentIds=new Set(data.enrollments.filter(e=>e.sectionId===section.id).map(e=>e.studentId));const rows=data.records.filter(r=>studentIds.has(r.studentId));return{name:section.name,value:rows.length?Math.round(rows.filter(r=>['present','late'].includes(r.status)).length/rows.length*100):0};});$('#view-root').innerHTML=`<div class="page">${renderPageHeader('التقارير والتحليلات','مؤشرات مبنية على البيانات المحلية مع تفسير مصدر كل تنبيه.','<button class="button button--secondary" id="export-report">تصدير CSV</button>')}
   <section class="grid grid--dashboard"><article class="card span-7"><header class="card__header"><div><h3>الحضور حسب الشعبة</h3><p>النسبة تشمل حاضر ومتأخر ضمن الجلسات المسجلة</p></div></header><div class="bar-list">${sectionAttendance.map(s=>`<div class="bar-row"><span>${escapeHtml(s.name)}</span><div class="bar-track"><div class="bar-fill ${s.value>=90?'green':s.value<75?'red':''}" style="width:${s.value}%"></div></div><strong>${s.value}%</strong></div>`).join('')}</div></article><article class="card span-5"><header class="card__header"><div><h3>ملخص المؤشرات</h3><p>القيم الداخلة في التحليل</p></div></header><div class="metric-strip" style="flex-wrap:wrap"><div class="metric-chip"><small>الطلاب</small><strong>${data.students.length}</strong></div><div class="metric-chip"><small>الحضور</small><strong>${data.attendanceRate}%</strong></div><div class="metric-chip"><small>الأداء</small><strong>${data.gradeAverage}%</strong></div>${schoolAllows('finance')?`<div class="metric-chip"><small>المتأخرات</small><strong>${formatMoney(data.outstanding)}</strong></div>`:''}</div></article><article class="card span-12"><header class="card__header"><div><h3>اقتراحات المتابعة الذكية</h3><p>قواعد محلية مفسرة — لا تغيّر أي سجل تلقائيًا</p></div></header><div class="grid grid--3">${alerts.map(a=>`<div class="alert-card is-${a.type}"><span class="alert-card__icon">${a.type==='success'?'✓':'!'}</span><div class="alert-card__copy"><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body)}</p><button data-alert-route="${a.route}">${escapeHtml(a.action)} ←</button></div></div>`).join('')}</div></article></section></div>`;$$('[data-alert-route]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.alertRoute)));$('#export-report').addEventListener('click',()=>downloadCsv('school-report.csv',[['المؤشر','القيمة'],['الطلاب',data.students.length],['الحضور',`${data.attendanceRate}%`],['متوسط الأداء',`${data.gradeAverage}%`],...(schoolAllows('finance')?[['الرصيد',data.outstanding/100]]:[]),...sectionAttendance.map(s=>[`حضور ${s.name}`,`${s.value}%`])]));}
 
-function downloadCsv(filename,rows){const csv='\uFEFF'+rows.map(row=>row.map(value=>`"${String(value??'').replaceAll('"','""')}"`).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+/**
+ * تنزيل ملف من المتصفح.
+ *
+ * الرابط يجب أن يكون داخل المستند قبل النقر: بعض المتصفحات — فَيرفُكس منها —
+ * تتجاهل click() على عنصر غير مُلحق، فيُبنى الملف بنجاح ولا يحدث شيء.
+ * كان هذا سبب فشل تنزيل نموذج إكسل والنسخة الاحتياطية معًا.
+ */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  // المهلة تترك للمتصفح وقتًا لبدء التنزيل قبل إبطال الرابط.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCsv(filename,rows){const csv='\uFEFF'+rows.map(row=>row.map(value=>`"${String(value??'').replaceAll('"','""')}"`).join(',')).join('\r\n');downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),filename);}
 
 /* ==================== الاستيراد من إكسل ==================== */
 
@@ -1972,10 +1993,10 @@ function downloadExcelTemplate(filename, headers, exampleRow) {
   const book = window.XLSX.utils.book_new();
   window.XLSX.utils.book_append_sheet(book, sheet, 'البيانات');
   const bytes = window.XLSX.write(book, { type: 'array', bookType: 'xlsx' });
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(
+    new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    filename,
+  );
 }
 
 function readExcelRows(file) {
@@ -2096,7 +2117,26 @@ async function renderUsers(){
     <section class="card data-card"><div class="table-wrap"><table class="data-table"><thead><tr><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الملف المرتبط</th><th>آخر دخول</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>${users.map(user=>`<tr><td data-label="المستخدم"><div class="cell-person">${userAvatarMarkup(user)}<span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.id)}</small></span></div></td><td data-label="اسم الدخول" dir="ltr">${escapeHtml(user.username)}</td><td data-label="الدور">${escapeHtml(roleInfo(user.role).label)}</td><td data-label="الملف">${user.role==='admin'?'إداري':user.profileId?'<span class="status status--success">مرتبط</span>':'<span class="status status--danger">غير مرتبط</span>'}</td><td data-label="آخر دخول">${user.lastLoginAt?formatDate(user.lastLoginAt)+' '+formatTime(user.lastLoginAt):'لم يدخل بعد'}</td><td data-label="الحالة">${statusBadge(user.status)}</td><td data-label="إجراءات"><div class="table-actions"><button class="icon-button" data-reset-password="${user.id}" title="تغيير كلمة المرور">⚿</button>${user.id!==state.user.id?`<button class="icon-button" data-toggle-user="${user.id}" title="${user.status==='active'?'إيقاف':'تفعيل'}">${user.status==='active'?'⊘':'✓'}</button>`:''}</div></td></tr>`).join('')}</tbody></table></div></section></div>`;
   $('#add-user').addEventListener('click',()=>openUserForm());
   $$('[data-reset-password]').forEach(button=>button.addEventListener('click',()=>openPasswordReset(users.find(user=>user.id===button.dataset.resetPassword))));
-  $$('[data-toggle-user]').forEach(button=>button.addEventListener('click',async()=>{const user=users.find(item=>item.id===button.dataset.toggleUser),before={status:user.status};user.status=user.status==='active'?'suspended':'active';user.updatedAt=nowIso();user.updatedBy=state.user.id;await dbPut('users',user);await audit(user.status==='active'?'USER_REACTIVATED':'USER_SUSPENDED','user',user.id,before,{status:user.status});showToast('تم تحديث الحساب',`أصبحت الحالة: ${statusLabel(user.status)}.`,'success');renderUsers();}));
+  $$('[data-toggle-user]').forEach(button=>button.addEventListener('click',async()=>{const user=users.find(item=>item.id===button.dataset.toggleUser),before={status:user.status};user.status=user.status==='active'?'suspended':'active';user.updatedAt=nowIso();user.updatedBy=state.user.id;await syncUserChange(user.id,{is_active:user.status==='active'});await dbPut('users',user);await audit(user.status==='active'?'USER_REACTIVATED':'USER_SUSPENDED','user',user.id,before,{status:user.status});showToast('تم تحديث الحساب',`أصبحت الحالة: ${statusLabel(user.status)}.`,'success');renderUsers();}));
+}
+
+/**
+ * تمرير تغيير حساب إلى الخادم قبل حفظه محليًا.
+ *
+ * الترتيب مقصود: لو فشل الخادم لا نريد جهازًا يظن أن الحساب عُطّل بينما
+ * صاحبه ما زال يدخل من هاتفه.
+ */
+async function syncUserChange(userId, patch) {
+  if (!Sync.isLinked()) return;
+  const response = await Sync.authed(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.message || 'تعذّر تحديث الحساب على الخادم.');
+  }
 }
 
 async function validateNewAccountCredentials(username, password) {
@@ -2115,7 +2155,36 @@ async function createLinkedUser({ role, profileId = null, displayName, username,
   if (role !== 'admin' && !profileId) throw new Error('يجب اختيار الملف المرتبط لهذا الدور.');
   if (profileId && (await dbIndexAll('users','profileId',profileId))[0]) throw new Error('الملف المحدد مرتبط بحساب آخر بالفعل.');
   const derived = await derivePassword(password);
-  const user=baseRecord(uid('user'),{username:cleanUsername,passwordHash:derived.hash,passwordSalt:derived.salt,passwordIterations:derived.iterations,role,profileId:profileId||null,displayName:String(displayName).trim(),lastLoginAt:null,failedAttempts:0,lockedUntil:null,createdBy:state.user.id,updatedBy:state.user.id});
+  // الحساب يُنشأ على الخادم أولًا. الكتابة محليًا وحدها كانت تصنع حسابًا يعمل
+  // على هذا المتصفح فقط: المعلّم لا يستطيع الدخول من جهازه، والمدرسة تبدو
+  // متعددة الأجهزة وهي ليست كذلك.
+  const id = uid('user');
+  if (Sync.isLinked()) {
+    const response = await Sync.authed('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        username: cleanUsername,
+        password,
+        role,
+        profile_id: profileId || '',
+        display_name: String(displayName).trim(),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      const messages = {
+        USERNAME_TAKEN: 'اسم المستخدم مستخدم داخل هذه المدرسة.',
+        PROFILE_TAKEN: 'هذا الملف مرتبط بحساب آخر.',
+        PLAN_FORBIDDEN: 'حسابات أولياء الأمور جزء من الباقة الكاملة.',
+        FORBIDDEN: 'إنشاء الحسابات للمدير وحده.',
+      };
+      throw new Error(messages[payload.error] || payload.message || 'تعذّر إنشاء الحساب على الخادم.');
+    }
+  }
+  // المرآة المحلية تجعل الدخول ممكنًا دون إنترنت على هذا الجهاز.
+  const user=baseRecord(id,{username:cleanUsername,passwordHash:derived.hash,passwordSalt:derived.salt,passwordIterations:derived.iterations,role,profileId:profileId||null,displayName:String(displayName).trim(),lastLoginAt:null,failedAttempts:0,lockedUntil:null,createdBy:state.user.id,updatedBy:state.user.id});
   await atomicWrite(['users','auditLogs'],async stores=>{stores.users.put(user);stores.auditLogs.put(auditRecord('USER_CREATED','user',user.id,null,{username:user.username,role:user.role,profileId:user.profileId}));});
   return user;
 }
@@ -2133,7 +2202,7 @@ async function openUserForm(preset={}){
 }
 
 function openPasswordReset(user){
-  openModal({title:'تغيير كلمة المرور',kicker:`@${user.username}`,body:'<form id="password-reset-form" class="form-grid"><div class="field field--full"><label>كلمة المرور الجديدة *</label><input name="password" type="password" minlength="8" required autocomplete="new-password"></div><div class="field field--full"><label>تأكيد كلمة المرور *</label><input name="confirmPassword" type="password" minlength="8" required autocomplete="new-password"></div><p class="form-message field--full" id="password-reset-message"></p></form>',footer:'<button class="button button--primary" id="save-password">حفظ كلمة المرور</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-password').addEventListener('click',async()=>{const form=$('#password-reset-form');if(!form.reportValidity())return;const data=Object.fromEntries(new FormData(form));if(data.password!==data.confirmPassword){$('#password-reset-message').textContent='كلمتا المرور غير متطابقتين.';return;}const derived=await derivePassword(data.password);const before={passwordChangedAt:user.passwordChangedAt||null};Object.assign(user,{passwordHash:derived.hash,passwordSalt:derived.salt,passwordIterations:derived.iterations,passwordChangedAt:nowIso(),failedAttempts:0,lockedUntil:null,updatedAt:nowIso(),updatedBy:state.user.id});await dbPut('users',user);await audit('USER_PASSWORD_RESET','user',user.id,before,{passwordChangedAt:user.passwordChangedAt});closeModal();showToast('تم تغيير كلمة المرور',`الحساب @${user.username} جاهز للدخول.`,'success');});}});
+  openModal({title:'تغيير كلمة المرور',kicker:`@${user.username}`,body:'<form id="password-reset-form" class="form-grid"><div class="field field--full"><label>كلمة المرور الجديدة *</label><input name="password" type="password" minlength="8" required autocomplete="new-password"></div><div class="field field--full"><label>تأكيد كلمة المرور *</label><input name="confirmPassword" type="password" minlength="8" required autocomplete="new-password"></div><p class="form-message field--full" id="password-reset-message"></p></form>',footer:'<button class="button button--primary" id="save-password">حفظ كلمة المرور</button><button class="button button--secondary" data-modal-close>إلغاء</button>',onOpen:()=>{$('#save-password').addEventListener('click',async()=>{const form=$('#password-reset-form');if(!form.reportValidity())return;const data=Object.fromEntries(new FormData(form));if(data.password!==data.confirmPassword){$('#password-reset-message').textContent='كلمتا المرور غير متطابقتين.';return;}const derived=await derivePassword(data.password);await syncUserChange(user.id,{password:data.password});const before={passwordChangedAt:user.passwordChangedAt||null};Object.assign(user,{passwordHash:derived.hash,passwordSalt:derived.salt,passwordIterations:derived.iterations,passwordChangedAt:nowIso(),failedAttempts:0,lockedUntil:null,updatedAt:nowIso(),updatedBy:state.user.id});await dbPut('users',user);await audit('USER_PASSWORD_RESET','user',user.id,before,{passwordChangedAt:user.passwordChangedAt});closeModal();showToast('تم تغيير كلمة المرور',`الحساب @${user.username} جاهز للدخول.`,'success');});}});
 }
 
 async function getSetting(key){return(await dbIndexAll('settings','key',key))[0]||null;}
@@ -2148,7 +2217,7 @@ async function canonicalChecksum(payload){const digest=await crypto.subtle.diges
 
 async function createBackupPayload(){const stores={};for(const name of Object.keys(SCHEMA))stores[name]=await dbGetAll(name);const payload={format:BACKUP_FORMAT,formatVersion:1,schemaVersion:DB_VERSION,exportedAt:nowIso(),schoolId:'ruwad-gaza-secondary-school',stores,counts:Object.fromEntries(Object.entries(stores).map(([name,rows])=>[name,rows.length]))};payload.checksum=await canonicalChecksum(payload);return payload;}
 
-async function downloadBackup(){const payload=await createBackupPayload(),blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a'),safeName=(state.schoolProfile.shortName||'school').replace(/[\\/:*?"<>|]+/g,'-').trim();a.href=url;a.download=`${safeName||'school'}-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);await audit('BACKUP_EXPORTED','system','database',null,{counts:payload.counts});showToast('تم إنشاء النسخة','احفظ الملف في مكان آمن؛ فهو يحتوي بيانات حساسة.','success');}
+async function downloadBackup(){const payload=await createBackupPayload(),blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),safeName=(state.schoolProfile.shortName||'school').replace(/[\\/:*?"<>|]+/g,'-').trim();downloadBlob(blob,`${safeName||'school'}-backup-${new Date().toISOString().slice(0,10)}.json`);await audit('BACKUP_EXPORTED','system','database',null,{counts:payload.counts});showToast('تم إنشاء النسخة','احفظ الملف في مكان آمن؛ فهو يحتوي بيانات حساسة.','success');}
 
 async function validateBackup(payload){if(!payload||![BACKUP_FORMAT,LEGACY_BACKUP_FORMAT].includes(payload.format))throw new Error(`هذا الملف ليس نسخة معتمدة لنظام ${state.schoolProfile.name}.`);if(payload.schemaVersion>DB_VERSION)throw new Error('النسخة أُنشئت بإصدار أحدث من التطبيق.');const suppliedChecksum=payload.checksum;if(!suppliedChecksum)throw new Error('النسخة لا تحتوي بصمة تحقق.');const checkPayload={...payload};delete checkPayload.checksum;const calculated=await canonicalChecksum(checkPayload);if(calculated!==suppliedChecksum)throw new Error('بصمة النسخة غير مطابقة؛ ربما تعرض الملف للتلف أو التعديل.');for(const name of Object.keys(SCHEMA)){if(!Array.isArray(payload.stores?.[name]))throw new Error(`المخزن ${name} مفقود من النسخة.`);if(payload.counts?.[name]!==payload.stores[name].length)throw new Error(`عدد سجلات ${name} لا يطابق بيانات النسخة.`);}const studentIds=new Set(payload.stores.students.map(x=>x.id));if(payload.stores.enrollments.some(e=>!studentIds.has(e.studentId)))throw new Error('النسخة تحتوي تسجيل طالب غير موجود.');return true;}
 
