@@ -935,83 +935,6 @@ async function seedFoundation({ createdBy, stages }) {
   }));
 }
 
-function showFirstRun() {
-  $('#auth-screen').hidden = false;
-  $('#app-shell').hidden = true;
-  const host = document.querySelector('.auth-form') || document.querySelector('.auth-screen');
-  const invited = Boolean(Sync.schoolIdFromUrl());
-  host.innerHTML = `
-    ${invited ? `<div class="auth-card" style="margin-block-end:16px">
-      <h1>انضمام إلى مدرسة قائمة</h1>
-      <p>هذا الرابط يخص مدرسة مسجّلة في لوحة أثر. اربط الجهاز بها لتصله بياناتها،
-        بدل إنشاء مدرسة جديدة على هذا الجهاز وحده.</p>
-      <button type="button" class="button button--primary" id="first-run-link">ربط الجهاز بالمدرسة</button>
-    </div>` : ''}
-    <form id="first-run" class="auth-card" autocomplete="off">
-      <h1>${invited ? 'أو: تجهيز مدرسة جديدة' : 'تجهيز النظام'}</h1>
-      <p>${invited
-        ? 'يُنشئ مدرسة على هذا الجهاز وحده، دون ارتباط بلوحة أثر.'
-        : 'هذه أول مرة يُفتح فيها النظام على هذا الجهاز. أنشئ حساب المدير.'}</p>
-      <div class="field"><label>اسم المدرسة</label>
-        <input name="schoolName" required maxlength="80" placeholder="مدرسة ..."></div>
-      <div class="field"><label>الباقة</label>
-        <select name="plan">
-          <option value="full">الإدارة الكاملة — الرسوم وحسابات أولياء الأمور</option>
-          <option value="basic">الأساسية — الطلاب والحضور والدرجات فقط</option>
-        </select></div>
-      <div class="field field--full">
-        <label>المراحل الدراسية</label>
-        <p style="margin:2px 0 8px;font-size:13px;opacity:.75">تُنشأ الصفوف المطابقة تلقائيًا — يمكن إضافة أو حذف صفوف لاحقًا من "الفصول والمواد".</p>
-        <label class="selection-option"><input type="checkbox" name="stage" value="elementary" checked> ابتدائي (١ – ٦)</label>
-        <label class="selection-option"><input type="checkbox" name="stage" value="preparatory" checked> إعدادي (٧ – ٩)</label>
-        <label class="selection-option"><input type="checkbox" name="stage" value="secondary" checked> ثانوي (١٠ – ١٢)</label>
-      </div>
-      <div class="field"><label>اسم الدخول</label>
-        <input name="username" required dir="ltr" pattern="[A-Za-z0-9._-]{3,40}" placeholder="admin"></div>
-      <div class="field"><label>كلمة المرور</label>
-        <input name="password" type="password" required minlength="8" autocomplete="new-password"></div>
-      <div class="field"><label>تأكيد كلمة المرور</label>
-        <input name="confirm" type="password" required minlength="8" autocomplete="new-password"></div>
-      <p class="form-message" id="first-run-error"></p>
-      <button class="button button--primary" type="submit">إنشاء الحساب وبدء الاستخدام</button>
-      <p style="margin-top:14px;font-size:13px;opacity:.75">
-        البيانات تُحفظ على هذا المتصفح وحده. احتفظ بنسخة احتياطية دوريًا من الإعدادات.
-      </p>
-    </form>`;
-
-  $('#first-run-link')?.addEventListener('click', openLinkDialog);
-
-  $('#first-run').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.target));
-    const error = $('#first-run-error');
-    error.textContent = '';
-    if (data.password !== data.confirm) { error.textContent = 'كلمتا المرور غير متطابقتين.'; return; }
-    try {
-      const username = await validateNewAccountCredentials(data.username, data.password);
-      const derived = await derivePassword(data.password);
-      const name = String(data.schoolName).trim();
-      const admin = baseRecord(uid('user'), {
-        username, passwordHash: derived.hash, passwordSalt: derived.salt,
-        passwordIterations: derived.iterations, role: 'admin', profileId: null,
-        displayName: `مدير ${name}`, lastLoginAt: null, failedAttempts: 0, lockedUntil: null,
-      });
-      await dbPut('users', admin);
-      await dbPut('settings', {
-        id: 'setting-school', key: 'schoolProfile',
-        value: normalizeSchoolProfile({ name, shortName: name, address: '', plan: data.plan }),
-        updatedAt: nowIso(), updatedBy: admin.id,
-      });
-      // يمنع ensureBrandIdentity من الكتابة فوق الاسم الذي اختاره المستخدم.
-      await dbPut('settings', { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: admin.id });
-      await dbPut('auditLogs', auditRecord('SYSTEM_INITIALISED', 'user', admin.id, null, { username }));
-      await seedFoundation({ createdBy: admin.id, stages: new FormData(event.target).getAll('stage') });
-      location.replace(location.pathname);
-    } catch (problem) {
-      error.textContent = problem.message;
-    }
-  });
-}
 
 /**
  * وضع العرض: نسخة مليئة ببيانات تجريبية للبيع.
@@ -1206,12 +1129,13 @@ async function bootstrap() {
     if (isDemoMode()) await ensureSeedData();
 
     const users = await dbGetAll('users');
+    // المدرسة تُنشأ من لوحة أثر وحدها. لا شاشة تأسيس محلية: كانت تسمح بإنشاء
+    // مدرسة على هذا الجهاز لا وجود لها في اللوحة، فتنتهي ببيانات معزولة
+    // يظنها صاحبها داخل النظام. الجهاز الجديد يسجّل الدخول ببيانات أثر.
     if (!users.length) {
       await setupGlobalEvents();
-      // المزامنة تبدأ قبل الخروج المبكر: جهاز جديد لمدرسة قائمة يجب أن يجد
-      // طريقًا للانضمام إليها، لا أن يُجبر على إنشاء مدرسة محلية جديدة.
       await startSync();
-      showFirstRun();
+      showAuth();
       return;
     }
 
@@ -2416,6 +2340,14 @@ async function renderSettings(){const school=normalizeSchoolProfile((await getSe
     <div class="field field--full"><label for="school-address">العنوان</label><input id="school-address" name="address" maxlength="180" value="${escapeHtml(school.address)}"></div>
     <div class="field field--full"><label for="certificate-footer">عبارة أسفل الشهادة</label><textarea id="certificate-footer" name="certificateFooter" rows="2" maxlength="240" placeholder="مثال: مع تمنياتنا لطلبتنا بدوام التقدم والنجاح">${escapeHtml(school.certificateFooter)}</textarea></div>
     <input name="currency" type="hidden" value="${escapeHtml(school.currency)}"><div class="field field--full"><button class="button button--primary" type="submit">حفظ وتطبيق الهوية</button></div></form></article>
+  <article class="card" id="credentials-card" hidden><header class="card__header"><div><h3>بيانات دخولك</h3><p>اسم المستخدم وكلمة المرور اللذان تدخل بهما إلى هذه المدرسة</p></div></header><form id="credentials-form" class="form-grid">
+    <div class="field field--full"><label for="cred-current">كلمة المرور الحالية *</label><input id="cred-current" type="password" required autocomplete="current-password"></div>
+    <div class="field"><label for="cred-username">اسم المستخدم</label><input id="cred-username" dir="ltr" autocomplete="username" pattern="[a-z0-9._-]{3,40}"></div>
+    <div class="field"><label for="cred-password">كلمة مرور جديدة</label><input id="cred-password" type="password" minlength="8" autocomplete="new-password" placeholder="اتركها فارغة لإبقائها"></div>
+    <p class="form-message field--full">تغيير كلمة المرور يُخرج بقية الأجهزة ويُبقي هذا الجهاز. لوحة أثر تستطيع دائمًا إصدار بيانات جديدة إن فقدتها.</p>
+    <p class="form-message field--full" id="credentials-message"></p>
+    <div class="page-actions field--full"><button class="button button--primary" type="submit">حفظ بيانات الدخول</button></div>
+  </form></article>
   <article class="card"><header class="card__header"><div><h3>سياسات التشغيل</h3><p>تطبق على السجلات الجديدة</p></div></header><form id="policy-settings" class="form-grid"><div class="field"><label>نمط الحضور</label><select name="attendanceMode"><option value="daily" ${policy.attendanceMode==='daily'?'selected':''}>يومي</option><option value="period" ${policy.attendanceMode==='period'?'selected':''}>لكل حصة</option></select></div><div class="field"><label>وزن التأخير</label><input name="lateWeight" type="number" min="0" max="1" step="0.1" value="${policy.lateWeight??.5}"></div><div class="field"><label>حد النجاح %</label><input name="passScore" type="number" min="0" max="100" value="${policy.passScore??50}"></div><div class="field"><label>قفل الجلسة (دقيقة)</label><input name="sessionTimeoutMinutes" type="number" min="5" max="240" value="${policy.sessionTimeoutMinutes??45}"></div><div class="field field--full"><button class="button button--primary" type="submit">حفظ السياسات</button></div></form></article>
   <article class="card"><header class="card__header"><div><h3>النسخ الاحتياطي</h3><p>${formatNumber(total)} سجلًا في ${Object.keys(SCHEMA).length} مخزنًا محليًا</p></div></header><div class="alert-card is-warning"><span class="alert-card__icon">!</span><div class="alert-card__copy"><h4>البيانات مرتبطة بهذا المتصفح</h4><p>احفظ نسخة دورية. ملف النسخة حساس ويحتوي بيانات المدرسة وهويتها.</p></div></div><div class="page-actions" style="margin-top:15px"><button class="button button--primary" id="export-backup">تنزيل نسخة JSON</button><label class="button button--secondary" for="import-backup" style="cursor:pointer">استعادة نسخة<input id="import-backup" type="file" accept="application/json" hidden></label></div></article>
   <article class="card"><header class="card__header"><div><h3>صيانة بيانات العرض</h3><p>إعادة القاعدة إلى بياناتها التجريبية الأولى</p></div></header><div class="confirm-box">هذا الإجراء يحذف كل التعديلات المحلية ويعيد بيانات العرض. خذ نسخة قبل المتابعة.</div><button class="button button--danger" id="reset-demo" style="margin-top:15px">إعادة ضبط بيانات العرض</button></article></section></div>`;
@@ -2435,7 +2367,76 @@ async function renderProfile(){const info=roleInfo(state.user.role);let profile=
 
 async function globalSearch(query){const q=normalizeArabic(query);if(!q)return;const [students,teachers,subjects]=await Promise.all([dbGetAll('students'),dbGetAll('teachers'),dbGetAll('subjects')]);const scoped=new Set(await getScopedStudentIds());const results=[...students.filter(x=>scoped.has(x.id)&&normalizeArabic(x.fullName+' '+x.admissionNo).includes(q)).slice(0,5).map(x=>({type:'طالب',title:x.fullName,sub:x.admissionNo,route:'students'})),...teachers.filter(x=>normalizeArabic(x.fullName+' '+x.employeeNo).includes(q)).slice(0,4).map(x=>({type:'معلم',title:x.fullName,sub:x.specialty,route:'teachers'})),...subjects.filter(x=>normalizeArabic(x.name+' '+x.code).includes(q)).slice(0,4).map(x=>({type:'مادة',title:x.name,sub:x.code,route:'academics'}))];openModal({title:'نتائج البحث',kicker:`بحث عن: ${query}`,body:results.length?`<div class="activity-list">${results.map((r,i)=>`<button class="activity-item" data-search-result="${i}" style="width:100%;border:0;background:transparent;text-align:start;cursor:pointer"><span class="activity-icon">⌕</span><span class="activity-copy"><strong>${escapeHtml(r.title)}</strong><small>${escapeHtml(r.type)} · ${escapeHtml(r.sub||'')}</small></span><span>←</span></button>`).join('')}</div>`:renderEmpty('لا نتائج','جرّب اسمًا أو رقمًا مختلفًا.'),footer:'<button class="button button--secondary" data-modal-close>إغلاق</button>',onOpen:()=>{$$('[data-search-result]').forEach(b=>b.addEventListener('click',()=>{const r=results[Number(b.dataset.searchResult)];closeModal();navigate(r.route);}));}});}
 
-Object.assign(ROUTE_RENDERERS,{dashboard:renderDashboard,students:renderStudents,guardians:renderGuardians,teachers:renderTeachers,academics:renderAcademics,timetable:renderTimetable,attendance:renderAttendance,grades:renderGrades,certificates:renderCertificates,finance:renderFinance,reports:renderReports,users:renderUsers,archive:renderArchive,settings:renderSettings,notifications:renderNotifications,profile:renderProfile});
+
+/**
+ * بطاقة بيانات الدخول داخل الإعدادات.
+ *
+ * تظهر للمربوطين فقط: الجهاز غير المربوط لا حساب له على الخادم ليغيّره.
+ * التغيير يمر بالخادم أولًا؛ لو نجح هناك ثم فشل محليًا لأمكن أن يبقى الجهاز
+ * على كلمة قديمة لا تعمل، فنُحدّث المرآة المحلية بعد نجاح الخادم مباشرة.
+ */
+async function mountCredentialsCard() {
+  const card = document.getElementById('credentials-card');
+  if (!card) return;
+  if (!Sync.isLinked() || !state.user) { card.hidden = true; return; }
+  card.hidden = false;
+
+  const usernameInput = document.getElementById('cred-username');
+  if (usernameInput) usernameInput.value = state.user.username || '';
+
+  document.getElementById('credentials-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = document.getElementById('credentials-message');
+    const current = document.getElementById('cred-current').value;
+    const nextUsername = (document.getElementById('cred-username').value || '').trim().toLowerCase();
+    const nextPassword = document.getElementById('cred-password').value;
+    message.textContent = 'جارٍ الحفظ…';
+    try {
+      const response = await Sync.authed('/api/account/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: current,
+          new_username: nextUsername,
+          ...(nextPassword ? { new_password: nextPassword } : {}),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.message || 'تعذر حفظ بيانات الدخول.');
+
+      // المرآة المحلية تُحدَّث بالكلمة الجديدة حتى يعمل الدخول دون إنترنت.
+      const derived = nextPassword ? await derivePassword(nextPassword) : null;
+      const user = await dbGet('users', state.user.id);
+      if (user) {
+        await suspendOutbox(() => dbPut('users', {
+          ...user,
+          username: payload.username,
+          ...(derived ? {
+            passwordHash: derived.hash,
+            passwordSalt: derived.salt,
+            passwordIterations: derived.iterations,
+          } : {}),
+          updatedAt: nowIso(),
+          updatedBy: state.user.id,
+        }));
+        state.user = { ...state.user, username: payload.username };
+      }
+      await audit('CREDENTIALS_CHANGED', 'user', state.user.id, null,
+        { username: payload.username, passwordChanged: payload.password_changed });
+
+      document.getElementById('credentials-form').reset();
+      document.getElementById('cred-username').value = payload.username;
+      message.textContent = '';
+      showToast('حُفظت بيانات الدخول',
+        payload.password_changed ? 'أُخرجت بقية الأجهزة. هذا الجهاز يعمل كما هو.' : 'تم تحديث اسم المستخدم.',
+        'success');
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  });
+}
+
+Object.assign(ROUTE_RENDERERS,{dashboard:renderDashboard,students:renderStudents,guardians:renderGuardians,teachers:renderTeachers,academics:renderAcademics,timetable:renderTimetable,attendance:renderAttendance,grades:renderGrades,certificates:renderCertificates,finance:renderFinance,reports:renderReports,users:renderUsers,archive:renderArchive,settings:async()=>{await renderSettings();await mountCredentialsCard();},notifications:renderNotifications,profile:renderProfile});
 
 $('#global-search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();globalSearch(event.currentTarget.value.trim());}});
 

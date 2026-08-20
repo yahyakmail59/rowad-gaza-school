@@ -477,6 +477,59 @@ try {
   const bAfterDelete = await (await authed(deviceB, `/api/pull?since=${bCursor}&stores=students`)).json();
   assert.equal(bAfterDelete.stores.students.find((r) => r.id === 'student-7').deleted, true);
 
+  /* ---------- تغيير بيانات الدخول من داخل المدرسة ---------- */
+
+  const credSchool = await createSchool('creds', 'مدرسة البيانات', 'production', 'basic');
+  const credLogin = await login(credSchool.credentials.school_id, 'admin', credSchool.credentials.admin_password);
+  const credToken = credLogin.payload.token;
+  const otherDevice = (await login(credSchool.credentials.school_id, 'admin', credSchool.credentials.admin_password)).payload.token;
+
+  const change = (token, body) => authed(token, '/api/account/credentials', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+
+  // كلمة المرور الحالية إلزامية: جهاز مفتوح لا يكفي للاستيلاء على الحساب.
+  const wrongCurrent = await change(credToken, { current_password: 'not-it', new_password: 'brand-new-pass' });
+  assert.equal(wrongCurrent.status, 401);
+  assert.equal((await login(credSchool.credentials.school_id, 'admin', credSchool.credentials.admin_password)).status, 200,
+    'a failed change must not alter the password');
+
+  const weak = await change(credToken, { current_password: credSchool.credentials.admin_password, new_password: 'short' });
+  assert.equal(weak.status, 422);
+
+  const badName = await change(credToken, { current_password: credSchool.credentials.admin_password, new_username: 'اسم عربي' });
+  assert.equal(badName.status, 422);
+
+  const changed = await ok(await change(credToken, {
+    current_password: credSchool.credentials.admin_password,
+    new_username: 'mudeer',
+    new_password: 'a-strong-password-1',
+  }), 'change own credentials');
+  assert.equal(changed.username, 'mudeer');
+  assert.equal(changed.password_changed, true);
+
+  assert.equal((await login(credSchool.credentials.school_id, 'admin', credSchool.credentials.admin_password)).status, 401,
+    'the old username and password must stop working');
+  assert.equal((await login(credSchool.credentials.school_id, 'mudeer', 'a-strong-password-1')).status, 200,
+    'the new credentials must work');
+
+  // تغيير كلمة المرور يطرد الأجهزة الأخرى ويُبقي الجهاز الذي غيّرها.
+  assert.equal((await authed(otherDevice, '/api/pull?since=0&stores=students')).status, 401,
+    'other devices must be signed out');
+  assert.equal((await authed(credToken, '/api/pull?since=0&stores=students')).status, 200,
+    'the device that made the change stays signed in');
+
+  // لوحة أثر تبقى قادرة على إصدار بيانات جديدة بعد أن غيّرها المدير.
+  const overrideId = randomUUID();
+  const override = await ok(await signed(
+    'POST', `/internal/v1/tenants/${credSchool.tenantId}/reset-owner-credential`, overrideId,
+    { request_id: overrideId, tenant_id: credSchool.tenantId },
+  ), 'Athar override after a local change');
+  // اللوحة تعيد اسم المستخدم الفعلي لا 'admin' المفترض، وإلا عرضت بيانات كاذبة.
+  assert.equal(override.credentials.username, 'mudeer', 'Athar must report the real admin username');
+  assert.equal((await login(credSchool.credentials.school_id, 'mudeer', override.credentials.secret)).status, 200,
+    'Athar reset issues a working password for the current username');
+
   console.log('school-engine-integration-ok');
 } finally {
   await miniflare.dispose();

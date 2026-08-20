@@ -244,14 +244,14 @@ const planCodeOf = (raw) => {
  * شكل بيانات الدخول الموحّد بين المحركات. لوحة أثر تقرأ
  * `login_id/username/secret` ولا تحتاج أن تعرف تسمية كل منتج لسرّه.
  */
-function credentialPayload(schoolId, password) {
+function credentialPayload(schoolId, password, username = 'admin') {
   return {
     login_id: schoolId,
-    username: 'admin',
+    username,
     secret: password,
     secret_label: 'كلمة مرور المدير',
     school_id: schoolId,
-    admin_username: 'admin',
+    admin_username: username,
     admin_password: password,
   };
 }
@@ -439,7 +439,9 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
   if (started.replay) {
     return json({
       ...started.result,
-      credentials: credentialPayload(started.result.external_tenant_id, password),
+      credentials: credentialPayload(
+        started.result.external_tenant_id, password, started.result.admin_username || 'admin',
+      ),
       replayed: true,
     });
   }
@@ -451,18 +453,23 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
     if (String(school.lifecycle_status) === 'archived') {
       throw new HttpError(409, 'TENANT_ARCHIVED', 'An archived tenant cannot receive a new password.');
     }
+    const owner = await db.prepare(
+      "SELECT id, username FROM school_users WHERE school_id = ? AND role = 'admin' ORDER BY id LIMIT 1",
+    ).bind(school.school_id).first();
+    if (!owner) throw new HttpError(404, 'OWNER_NOT_FOUND', 'This tenant has no admin account.');
     const salt = newSalt();
     const hash = await derivePassword(password, salt);
     const now = Date.now();
     const result = {
       ok: true, request_id: signed.requestId, tenant_id: tenantId,
       external_tenant_id: school.school_id, status: 'password_reset',
+      admin_username: owner.username,
     };
     await db.batch([
       db.prepare(
         `UPDATE school_users SET password_hash = ?, password_salt = ?, password_iterations = ?,
-         is_active = 1, updated_at = ? WHERE school_id = ? AND role = 'admin'`,
-      ).bind(hash, salt, PBKDF2_ITER, now, school.school_id),
+         is_active = 1, updated_at = ? WHERE id = ?`,
+      ).bind(hash, salt, PBKDF2_ITER, now, owner.id),
       db.prepare('DELETE FROM sessions WHERE school_id = ?').bind(school.school_id),
       db.prepare(
         `UPDATE adapter_requests SET status = 'succeeded', response_json = ?, error_code = '', completed_at = ?
@@ -471,7 +478,7 @@ async function resetAdminPassword(env, signed, tenantIdFromPath) {
     ]);
     return json({
       ...result,
-      credentials: credentialPayload(school.school_id, password),
+      credentials: credentialPayload(school.school_id, password, owner.username),
     });
   } catch (error) {
     await markAdapterFailed(db, signed.requestId, error instanceof HttpError ? error.code : 'PASSWORD_RESET_FAILED');
@@ -861,6 +868,92 @@ async function push(request, env, session) {
   return json({ ok: true, accepted: accepted.length, rejected, cursor: now });
 }
 
+/**
+ * تغيير اسم المستخدم أو كلمة المرور من داخل المدرسة.
+ *
+ * كلمة المرور الحالية إلزامية: من يجد جهازًا مفتوحًا يجب ألا يستطيع الاستيلاء
+ * على الحساب. الجلسات الأخرى تُلغى ويبقى هذا الجهاز، فتغيير كلمة المرور
+ * يطرد المتطفّل ولا يطرد صاحب الحساب.
+ *
+ * هذا لا يلغي «بيانات دخول جديدة» في لوحة أثر: تلك مخرج المالك حين يفقد
+ * كل شيء، وهذه إدارة يومية داخل المدرسة.
+ */
+async function changeOwnCredentials(request, env, session, token) {
+  const bytes = await readBoundedBody(request, 4096);
+  let body;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new HttpError(400, 'INVALID_JSON', 'Request JSON is invalid.');
+  }
+
+  const user = await env.DB.prepare(
+    `SELECT id, username, password_hash, password_salt, password_iterations
+     FROM school_users WHERE id = ? AND school_id = ?`,
+  ).bind(session.user_id, session.school_id).first();
+  if (!user) throw new HttpError(404, 'USER_NOT_FOUND', 'Account was not found.');
+
+  const current = str(body.current_password, 200);
+  const derivedCurrent = await derivePassword(
+    current, user.password_salt, Number(user.password_iterations) || PBKDF2_ITER,
+  );
+  if (!safeEqual(derivedCurrent, user.password_hash)) {
+    throw new HttpError(401, 'INVALID_CURRENT_PASSWORD', 'كلمة المرور الحالية غير صحيحة.');
+  }
+
+  const nextUsername = body.new_username === undefined
+    ? String(user.username)
+    : str(body.new_username, 60).trim().toLowerCase();
+  if (!/^[a-z0-9._-]{3,40}$/.test(nextUsername)) {
+    throw new HttpError(422, 'INVALID_USERNAME', 'اسم المستخدم: حروف إنجليزية وأرقام ونقطة وشرطة، من 3 إلى 40.');
+  }
+  const nextPassword = body.new_password === undefined ? '' : str(body.new_password, 200);
+  if (nextPassword && nextPassword.length < 8) {
+    throw new HttpError(422, 'WEAK_PASSWORD', 'كلمة المرور يجب ألا تقل عن 8 محارف.');
+  }
+  if (nextUsername === user.username && !nextPassword) {
+    throw new HttpError(422, 'NOTHING_TO_CHANGE', 'لم تغيّر شيئًا.');
+  }
+
+  if (nextUsername !== user.username) {
+    const taken = await env.DB.prepare(
+      'SELECT id FROM school_users WHERE school_id = ? AND username = ? AND id <> ?',
+    ).bind(session.school_id, nextUsername, user.id).first();
+    if (taken) throw new HttpError(409, 'USERNAME_TAKEN', 'اسم المستخدم مستخدم داخل هذه المدرسة.');
+  }
+
+  const now = Date.now();
+  const statements = [];
+  if (nextPassword) {
+    const salt = newSalt();
+    statements.push(env.DB.prepare(
+      `UPDATE school_users SET username = ?, password_hash = ?, password_salt = ?,
+       password_iterations = ?, updated_at = ? WHERE id = ?`,
+    ).bind(nextUsername, await derivePassword(nextPassword, salt), salt, PBKDF2_ITER, now, user.id));
+    statements.push(env.DB.prepare(
+      'DELETE FROM sessions WHERE school_id = ? AND user_id = ? AND token_hash <> ?',
+    ).bind(session.school_id, user.id, await sha256b64(token)));
+  } else {
+    statements.push(env.DB.prepare('UPDATE school_users SET username = ?, updated_at = ? WHERE id = ?')
+      .bind(nextUsername, now, user.id));
+  }
+  statements.push(env.DB.prepare(
+    `INSERT INTO school_audit (id, school_id, at, user_id, user_name, action, entity, entity_id, detail)
+     VALUES (?, ?, ?, ?, '', 'CREDENTIALS_CHANGED', 'user', ?, ?)`,
+  ).bind(
+    crypto.randomUUID(), session.school_id, now, user.id, user.id,
+    `username=${nextUsername};password=${nextPassword ? 'changed' : 'unchanged'}`,
+  ));
+  await env.DB.batch(statements);
+
+  return json({
+    ok: true,
+    username: nextUsername,
+    password_changed: Boolean(nextPassword),
+    other_sessions_revoked: Boolean(nextPassword),
+  });
+}
+
 async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -871,8 +964,12 @@ async function handleApi(request, env) {
   if (path === '/api/login' && request.method === 'POST') return login(request, env);
 
   const session = await requireSession(request, env);
+  const bearer = (request.headers.get('Authorization') || '').slice(7);
+  if (path === '/api/account/credentials' && request.method === 'POST') {
+    return changeOwnCredentials(request, env, session, bearer);
+  }
   if (path === '/api/logout' && request.method === 'POST') {
-    const token = (request.headers.get('Authorization') || '').slice(7);
+    const token = bearer;
     await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256b64(token)).run();
     return json({ ok: true });
   }
