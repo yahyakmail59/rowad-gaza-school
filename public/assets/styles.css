@@ -783,3 +783,7 @@ body {
   .data-table tr { border-color: var(--line); border-radius: 14px; }
   .pagination { border-color: var(--line); }
 }
+
+@media print {
+  .card, .modal { box-shadow: none; }
+}
