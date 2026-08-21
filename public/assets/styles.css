@@ -787,3 +787,51 @@ body {
 @media print {
   .card, .modal { box-shadow: none; }
 }
+
+/* Premium responsive navigation: keeps the existing routes and permission model intact. */
+:root { --sidebar-width: 294px; }
+.sidebar {
+  inset-block: 14px;
+  inset-inline-start: 14px;
+  width: var(--sidebar-width);
+  height: calc(100dvh - 28px);
+  padding: 22px 16px 16px;
+  border: 1px solid rgba(224, 174, 99, .2);
+  border-radius: 26px;
+  box-shadow: 0 20px 55px rgba(16, 47, 52, .18), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.sidebar__top { padding-inline: 6px; padding-bottom: 21px; }
+.sidebar .brand { padding-inline: 2px; }
+.sidebar .brand strong { letter-spacing: -.01em; }
+.school-year { margin-inline: 2px; margin-bottom: 19px; padding: 13px; }
+.main-nav { padding-inline: 2px; }
+.nav-section-label { margin-inline: 9px; }
+.nav-item { min-height: 51px; margin: 4px 0; padding: 11px 13px; gap: 12px; border-radius: 15px; }
+.nav-item::after { content: ''; position: absolute; inset: 5px; border: 1px solid transparent; border-radius: 11px; pointer-events: none; }
+.nav-item:hover::after { border-color: rgba(255, 255, 255, .12); }
+.nav-item.is-active::after { border-color: rgba(224, 174, 99, .18); }
+.nav-icon { width: 31px; height: 31px; color: #d9c18f; background: rgba(255, 255, 255, .055); border: 1px solid rgba(224, 174, 99, .16); border-radius: 10px; }
+.nav-item.is-active .nav-icon { color: #fff4da; background: rgba(161, 109, 42, .36); border-color: rgba(224, 174, 99, .38); }
+.sidebar__bottom { padding: 15px 2px 2px; }
+.local-status { margin-inline: 0; margin-bottom: 12px; padding: 11px; border-radius: 14px; }
+.user-mini { min-height: 61px; padding: 10px; border-radius: 15px; }
+.app-area { margin-inline-start: calc(var(--sidebar-width) + 28px); }
+
+@media (max-width: 900px) {
+  .sidebar {
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(88vw, 330px);
+    height: 100dvh;
+    padding: 24px 16px 16px;
+    border-radius: 24px 0 0 24px;
+  }
+  .app-area { margin-inline-start: 0; }
+  .topbar { padding-inline: 16px; }
+}
+
+@media (max-width: 480px) {
+  .sidebar { width: min(91vw, 330px); padding-inline: 13px; }
+  .nav-item { min-height: 53px; }
+  .nav-item span:nth-child(2) { font-size: 15px; }
+}

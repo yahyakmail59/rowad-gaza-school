@@ -267,6 +267,10 @@ async function provisionFromAthar(env, signed) {
   if (!environment) throw new HttpError(422, 'INVALID_ENVIRONMENT', 'Environment must be demo or production.');
   const planCode = planCodeOf(adapterRequired(body.plan_code, 'INVALID_PLAN_CODE', 80));
   const config = body.config && typeof body.config === 'object' && !Array.isArray(body.config) ? body.config : {};
+  const logoDataUrl = str(config.logo_data_url, 42000).trim();
+  if (logoDataUrl && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(logoDataUrl)) {
+    throw new HttpError(422, 'INVALID_SCHOOL_LOGO', 'School logo data is invalid.');
+  }
   // اسم مستخدم المدير يختاره المشغّل من لوحة أثر. `admin` افتراض لا قاعدة:
   // مدرسة قد تفضّل اسمًا يعرفه مديرها، ولا سبب لفرض واحد على الجميع.
   const adminUsername = str(body.admin_username, 60).trim().toLowerCase() || 'admin';
@@ -299,6 +303,7 @@ async function provisionFromAthar(env, signed) {
       name: displayName,
       shortName: displayName,
       plan: planCode,
+      logoDataUrl,
       phone: str(config.phone, 40),
       address: str(config.address, 300),
       currency: str(config.currency, 8) || 'ILS',

@@ -385,12 +385,19 @@ async function ensureBrandIdentity() {
   const previousSchool = schoolSetting.value || {};
   await dbPut('settings', {
     ...schoolSetting,
-    value: { ...previousSchool, name: SCHOOL_NAME, shortName: SCHOOL_SHORT_NAME, logoPath: SCHOOL_LOGO, address: previousSchool.address === 'فلسطين' ? 'غزة، فلسطين' : previousSchool.address },
+    value: {
+      ...previousSchool,
+      name: String(previousSchool.name || SCHOOL_NAME).trim(),
+      shortName: String(previousSchool.shortName || previousSchool.name || SCHOOL_SHORT_NAME).trim(),
+      logoPath: previousSchool.logoPath || SCHOOL_LOGO,
+      logoDataUrl: previousSchool.logoDataUrl || '',
+      address: previousSchool.address === 'فلسطين' ? 'غزة، فلسطين' : previousSchool.address,
+    },
     updatedAt: nowIso(), updatedBy: 'system',
   });
 
   const admin = await dbGet('users', 'user-admin');
-  if (admin) await dbPut('users', { ...admin, displayName: `مدير ${SCHOOL_NAME}`, updatedAt: nowIso(), updatedBy: 'system' });
+  if (admin && !admin.displayName) await dbPut('users', { ...admin, displayName: `مدير ${previousSchool.name || SCHOOL_NAME}`, updatedAt: nowIso(), updatedBy: 'system' });
   await dbPut('settings', { id: 'setting-brand', key: 'brandIdentityVersion', value: 1, updatedAt: nowIso(), updatedBy: 'system' });
   await dbPut('auditLogs', auditRecord('BRAND_IDENTITY_UPDATED', 'settings', 'schoolProfile', { name: previousSchool.name || null }, { name: SCHOOL_NAME, logoPath: SCHOOL_LOGO }));
 }
